@@ -61,6 +61,14 @@ data class AlarmConfigDto(
     val scheduleFrom: String = "08:00",
     val scheduleTo: String = "20:00",
     val scheduleDays: List<Int> = emptyList(),
+    /** Tono de la alarma: uno de los ocho sintetizados. */
+    val tone: String = "CLASSIC",
+    val volume: Float = 0.8f,
+    val vibrate: Boolean = true,
+    /** Repetir el sonido hasta descartar el aviso. */
+    val loopSound: Boolean = false,
+    val soundSeconds: Int = 10,
+    val fadeIn: Boolean = false,
 ) {
     fun toConfig(): AlarmConfig = AlarmConfig(
         enabled = enabled,
@@ -142,6 +150,17 @@ data class Settings(
     val temperatureUnit: String = "C",
     /** `km` o `mi`. */
     val distanceUnit: String = "km",
+    /** Círculo del radio de vigilancia sobre el mapa. */
+    val showRadius: Boolean = true,
+    /** Flecha con el desplazamiento del sistema precipitante. */
+    val showMotionArrow: Boolean = true,
+    /** Capa que marca las zonas sin cobertura de radar. */
+    val showCoverage: Boolean = false,
+    /**
+     * `plain` dibuja la capa con los colores exactos de la paleta; `blend` la
+     * integra en el mapa base, más bonito pero menos visible.
+     */
+    val blend: String = "plain",
 )
 
 /** Temperatura en la unidad elegida. */

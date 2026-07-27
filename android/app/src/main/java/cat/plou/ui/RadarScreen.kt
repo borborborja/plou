@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import cat.plou.data.PlouStore
 import cat.plou.data.Settings
@@ -54,7 +55,10 @@ import cat.plou.radar.AndroidTileSource
 import cat.plou.radar.ColorScheme
 import cat.plou.radar.Intensity
 import cat.plou.radar.LatLon
+import cat.plou.radar.KM_PER_LAT_DEGREE
 import cat.plou.radar.LocationAnalysis
+import cat.plou.radar.MotionVector
+import cat.plou.radar.offsetKm
 import cat.plou.radar.RadarIndex
 import cat.plou.radar.RadarIndexClient
 import cat.plou.radar.TileOptions
@@ -230,6 +234,13 @@ fun RadarScreen(
                 baseMap = settings.baseMap,
                 myPosition = myPosition,
                 watched = active?.let { GeoPoint(it.lat, it.lon) },
+                radiusKm = active?.alarm?.radiusKm ?: 0.0,
+                motion = analysis?.motion,
+                showRadius = settings.showRadius,
+                showMotion = settings.showMotionArrow,
+                blend = settings.blend,
+                showCoverage = settings.showCoverage,
+                coverageHost = index!!.host,
                 onMapReady = { mapRef = it },
             )
         }
@@ -267,7 +278,7 @@ fun RadarScreen(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             analysis?.let { SummaryCard(active?.name.orEmpty(), it, settings) }
-            Legend(scheme)
+            Legend(scheme, settings.showSnow)
             if (frames.isNotEmpty()) {
                 Timeline(
                     frames = frames.size,
@@ -294,6 +305,13 @@ private fun RadarMap(
     baseMap: String,
     myPosition: GeoPoint?,
     watched: GeoPoint?,
+    radiusKm: Double,
+    motion: MotionVector?,
+    showRadius: Boolean,
+    showMotion: Boolean,
+    blend: String,
+    showCoverage: Boolean,
+    coverageHost: String,
     onMapReady: (MapView) -> Unit,
 ) {
     val context = LocalContext.current
@@ -366,9 +384,33 @@ private fun RadarMap(
             ),
         ),
     )
-    val visibleFilter = remember(opacity) { alphaFilter(opacity) }
+    // En modo «integrado» la capa se funde con el mapa base bajando su opacidad
+    // efectiva; en «nítido» se dibuja con los colores exactos de la paleta.
+    val visibleFilter = remember(opacity, blend) {
+        alphaFilter(if (blend == "blend") opacity * 0.75f else opacity)
+    }
     val hiddenFilter = remember { alphaFilter(0f) }
     val marcadores = remember { FolderOverlay() }
+
+    // Capa de zonas sin cobertura de radar. El proveedor sólo la publica hasta
+    // el zoom 5; por encima llega vacía.
+    val coverage = remember(coverageHost) {
+        val fuente = object : OnlineTileSourceBase(
+            "cobertura", 0, 5, 512, ".png", arrayOf(""), "© RainViewer",
+            TileSourcePolicy(1, TileSourcePolicy.FLAG_NO_BULK),
+        ) {
+            override fun getTileURLString(pMapTileIndex: Long): String {
+                val z = MapTileIndex.getZoom(pMapTileIndex)
+                val x = MapTileIndex.getX(pMapTileIndex)
+                val y = MapTileIndex.getY(pMapTileIndex)
+                return "$coverageHost/v2/coverage/0/512/$z/$x/$y/0/0_0.png"
+            }
+        }
+        TilesOverlay(MapTileProviderBasic(context, fuente), context).apply {
+            loadingBackgroundColor = AndroidColor.TRANSPARENT
+            loadingLineColor = AndroidColor.TRANSPARENT
+        }
+    }
 
     AndroidView(
         factory = { map },
@@ -396,11 +438,24 @@ private fun RadarMap(
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
 
-            // Marcadores: dónde estás y qué punto se está vigilando.
+            // Marcadores y ayudas: dónde estás, qué se vigila, el radio y hacia
+            // dónde se mueve la precipitación.
             marcadores.items.apply {
                 clear()
+                if (showRadius && watched != null && radiusKm > 0) {
+                    add(circulo(watched, radiusKm, BrandPink.toArgb()))
+                }
+                if (showMotion && watched != null && motion != null) {
+                    add(flecha(watched, motion, BrandPink.toArgb()))
+                }
                 myPosition?.let { add(punto(it, BrandBlue.toArgb())) }
                 watched?.let { add(punto(it, BrandPink.toArgb())) }
+            }
+            // La cobertura va bajo los marcadores y sobre el radar.
+            if (showCoverage && !view.overlays.contains(coverage)) {
+                view.overlays.add(coverage)
+            } else if (!showCoverage) {
+                view.overlays.remove(coverage)
             }
             if (!view.overlays.contains(marcadores)) view.overlays.add(marcadores)
 
@@ -441,33 +496,84 @@ private fun SummaryCard(place: String, analysis: LocationAnalysis, settings: Set
     }
 }
 
-/** Leyenda de intensidad, con los colores de la propia paleta. */
+/**
+ * Leyenda de intensidad. Plegada es una tira de color; desplegada muestra los
+ * valores en mm/h y los umbrales que usan las alarmas. Los colores salen de la
+ * misma rampa que las teselas, así que no pueden desajustarse del mapa.
+ */
 @Composable
-private fun Legend(scheme: ColorScheme) {
+private fun Legend(scheme: ColorScheme, showSnow: Boolean) {
     val stops = remember(scheme) { legendFor(scheme) }
-    Row(
+    var open by remember { mutableStateOf(false) }
+    if (stops.isEmpty()) return
+
+    Column(
         Modifier
-            .clip(RoundedCornerShape(100.dp))
-            .background(Color(0x8C14161E))
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+            .clip(RoundedCornerShape(if (open) 20.dp else 100.dp))
+            .background(Color(0xB314161E))
+            .clickable { open = !open }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("mm/h", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelSmall)
-        stops.forEach { stop ->
-            Box(
-                Modifier
-                    .size(width = 16.dp, height = 10.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(Color(stop.rain)),
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                "Lluvia",
+                color = Color.White.copy(alpha = 0.75f),
+                style = MaterialTheme.typography.labelSmall,
             )
+            stops.forEach { stop ->
+                Box(
+                    Modifier
+                        .size(width = 14.dp, height = 10.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color(stop.rain)),
+                )
+            }
+            Text(if (open) "▾" else "▸", color = Color.White.copy(alpha = 0.75f))
         }
-        Text(
-            "${stops.firstOrNull()?.mmPerHour?.let { "%.1f".format(it) }}–${stops.lastOrNull()?.mmPerHour?.toInt()}",
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall,
-        )
+
+        if (open) {
+            if (showSnow && stops.any { it.snow != null }) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "Nieve",
+                        color = Color.White.copy(alpha = 0.75f),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    stops.forEach { stop ->
+                        Box(
+                            Modifier
+                                .size(width = 14.dp, height = 10.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(stop.snow?.let { Color(it) } ?: Color.Transparent),
+                        )
+                    }
+                }
+            }
+            // Sólo se rotulan los escalones que coinciden con un umbral de alarma.
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                stops.filter { it.label != null }.forEach { stop ->
+                    Column {
+                        Text(
+                            "%.1f mm/h".format(stop.mmPerHour),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                        Text(
+                            stop.label.orEmpty(),
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -615,5 +721,68 @@ private fun punto(at: GeoPoint, color: Int): Overlay = object : Overlay() {
         val p = map.projection.toPixels(at, null)
         canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, relleno)
         canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, borde)
+    }
+}
+
+
+/** Círculo de vigilancia alrededor del punto, en trazo discontinuo. */
+private fun circulo(center: GeoPoint, radiusKm: Double, color: Int): Overlay = object : Overlay() {
+    private val trazo = android.graphics.Paint().apply {
+        isAntiAlias = true
+        this.color = color
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 3f
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(14f, 12f), 0f)
+    }
+
+    override fun draw(canvas: android.graphics.Canvas, map: MapView?, shadow: Boolean) {
+        if (shadow || map == null) return
+        val centro = map.projection.toPixels(center, null)
+        // El radio en píxeles se mide proyectando un punto al norte del centro.
+        val borde = map.projection.toPixels(
+            GeoPoint(center.latitude + radiusKm / KM_PER_LAT_DEGREE, center.longitude),
+            null,
+        )
+        val radio = kotlin.math.hypot(
+            (borde.x - centro.x).toDouble(),
+            (borde.y - centro.y).toDouble(),
+        ).toFloat()
+        if (radio > 2f) canvas.drawCircle(centro.x.toFloat(), centro.y.toFloat(), radio, trazo)
+    }
+}
+
+/** Flecha con el desplazamiento del sistema: una hora de recorrido. */
+private fun flecha(from: GeoPoint, motion: MotionVector, color: Int): Overlay = object : Overlay() {
+    private val trazo = android.graphics.Paint().apply {
+        isAntiAlias = true
+        this.color = color
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 6f
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+
+    override fun draw(canvas: android.graphics.Canvas, map: MapView?, shadow: Boolean) {
+        if (shadow || map == null || motion.speedKmh < 2) return
+        val destino = offsetKm(
+            LatLon(from.latitude, from.longitude),
+            motion.east,
+            motion.north,
+        )
+        val a = map.projection.toPixels(from, null)
+        val b = map.projection.toPixels(GeoPoint(destino.lat, destino.lon), null)
+        canvas.drawLine(a.x.toFloat(), a.y.toFloat(), b.x.toFloat(), b.y.toFloat(), trazo)
+
+        // Punta de flecha.
+        val ang = kotlin.math.atan2((b.y - a.y).toDouble(), (b.x - a.x).toDouble())
+        val largo = 22.0
+        for (giro in listOf(2.6, -2.6)) {
+            canvas.drawLine(
+                b.x.toFloat(),
+                b.y.toFloat(),
+                (b.x + largo * kotlin.math.cos(ang + giro)).toFloat(),
+                (b.y + largo * kotlin.math.sin(ang + giro)).toFloat(),
+                trazo,
+            )
+        }
     }
 }

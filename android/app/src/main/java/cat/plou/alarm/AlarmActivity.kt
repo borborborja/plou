@@ -1,8 +1,6 @@
 package cat.plou.alarm
 
 import android.app.NotificationManager
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -36,7 +34,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import cat.plou.data.AlarmStateDto
 import cat.plou.data.PlouStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -54,7 +54,7 @@ class AlarmActivity : ComponentActivity() {
         const val EXTRA_LOCATION_ID = "ubicacion"
     }
 
-    private var tone: ToneGenerator? = null
+    private var stopTone: (() -> Unit)? = null
     private var vibrator: Vibrator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -66,7 +66,12 @@ class AlarmActivity : ComponentActivity() {
         val place = intent.getStringExtra(EXTRA_PLACE).orEmpty()
         val locationId = intent.getLongExtra(EXTRA_LOCATION_ID, -1L)
 
-        startAlarmSound()
+        // La configuración de sonido se lee de la ubicación que ha avisado.
+        lifecycleScope.launch {
+            val config = PlouStore(applicationContext).currentLocations()
+                .firstOrNull { it.id == locationId }?.alarm ?: cat.plou.data.AlarmConfigDto()
+            withContext(Dispatchers.Main) { startAlarmSound(config) }
+        }
 
         setContent {
             AlarmScreen(
@@ -97,12 +102,18 @@ class AlarmActivity : ComponentActivity() {
         }
     }
 
-    private fun startAlarmSound() {
-        runCatching {
-            tone = ToneGenerator(AudioManager.STREAM_ALARM, 80).also {
-                it.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 3000)
-            }
+    private fun startAlarmSound(config: cat.plou.data.AlarmConfigDto) {
+        // El tono, el volumen y la duración son los de esta ubicación.
+        if (config.tone != "SILENT") {
+            stopTone = playTone(
+                tone = AlarmTone.of(config.tone),
+                volume = config.volume,
+                loop = config.loopSound,
+                seconds = config.soundSeconds,
+                fadeIn = config.fadeIn,
+            )
         }
+        if (!config.vibrate) return
         vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             (getSystemService(VibratorManager::class.java))?.defaultVibrator
         } else {
@@ -116,8 +127,8 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun stopAlarmSound() {
-        runCatching { tone?.stopTone(); tone?.release() }
-        tone = null
+        runCatching { stopTone?.invoke() }
+        stopTone = null
         runCatching { vibrator?.cancel() }
     }
 
