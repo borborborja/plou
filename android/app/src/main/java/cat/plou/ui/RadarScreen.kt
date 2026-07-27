@@ -189,9 +189,12 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
         all.filter { it.nowcast || it.time >= desde }.ifEmpty { all.takeLast(1) }
     }
 
-    // Animación.
+    // Animación. Antes de empezar se da un margen para que las capas hayan
+    // pedido sus teselas: si la animación arranca de inmediato, los primeros
+    // saltos se ven en blanco mientras llegan.
     LaunchedEffect(playing, frames.size, settings.frameDurationMs) {
         if (!playing || frames.size < 2) return@LaunchedEffect
+        delay(2500)
         while (true) {
             delay(settings.frameDurationMs.toLong())
             frame = (frame + 1) % frames.size
@@ -299,6 +302,10 @@ private fun RadarMap(
         index.all.map { frame ->
             cache.getOrPut(frame.path) {
                 val provider = MapTileProviderBasic(context, RadarTileSource(index.host, frame.path, options))
+                // Sitio de sobra para las teselas visibles de este fotograma:
+                // si se evictaran, al volver a mostrarlo habría que pedirlas y
+                // el mapa parpadearía en ese paso de la animación.
+                provider.tileCache.ensureCapacity(64)
                 TilesOverlay(provider, context).apply {
                     loadingBackgroundColor = AndroidColor.TRANSPARENT
                     loadingLineColor = AndroidColor.TRANSPARENT
@@ -307,34 +314,40 @@ private fun RadarMap(
         }
     }
 
+    // Dos únicos filtros, reutilizados: el visible con la opacidad elegida y el
+    // oculto totalmente transparente.
+    fun alphaFilter(alpha: Float) = android.graphics.ColorMatrixColorFilter(
+        android.graphics.ColorMatrix(
+            floatArrayOf(
+                1f, 0f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                0f, 0f, 1f, 0f, 0f,
+                0f, 0f, 0f, alpha, 0f,
+            ),
+        ),
+    )
+    val visibleFilter = remember(opacity) { alphaFilter(opacity) }
+    val hiddenFilter = remember { alphaFilter(0f) }
+
     AndroidView(
         factory = { map },
         modifier = Modifier.fillMaxSize(),
         update = { view ->
             view.setTileSource(baseSource)
-            if (view.overlays.toList() != overlays) {
+            // Sólo se toca la lista de capas cuando cambia el conjunto: rehacerla
+            // en cada fotograma reiniciaría el dibujado y volvería a parpadear.
+            if (view.overlays.size != overlays.size || !view.overlays.containsAll(overlays)) {
                 view.overlays.clear()
-                overlays.forEach { view.overlays.add(it) }
+                view.overlays.addAll(overlays)
             }
-            // Todas las capas quedan activas para que sus teselas se descarguen
-            // y permanezcan en caché; sólo cambia la opacidad. Si se activara
-            // y desactivara la capa, cada paso de la animación tendría que
-            // volver a pedir teselas y el mapa parpadearía.
+            // Todas las capas quedan activas y dibujando, para que sus teselas se
+            // descarguen y permanezcan en caché; entre fotograma y fotograma
+            // sólo cambia la opacidad. Si se activaran y desactivaran, cada paso
+            // de la animación tendría que pedir sus teselas y el mapa
+            // parpadearía en cada salto.
             overlays.forEachIndexed { i, overlay ->
                 overlay.isEnabled = true
-                val alpha = if (i == frameIndex) opacity else 0f
-                overlay.setColorFilter(
-                    android.graphics.ColorMatrixColorFilter(
-                        android.graphics.ColorMatrix(
-                            floatArrayOf(
-                                1f, 0f, 0f, 0f, 0f,
-                                0f, 1f, 0f, 0f, 0f,
-                                0f, 0f, 1f, 0f, 0f,
-                                0f, 0f, 0f, alpha, 0f,
-                            ),
-                        ),
-                    ),
-                )
+                overlay.setColorFilter(if (i == frameIndex) visibleFilter else hiddenFilter)
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
             view.invalidate()
