@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,6 +25,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // El contenido se dibuja bajo las barras del sistema: el mapa ocupa
+        // toda la pantalla y la barra superior flota encima con su degradado.
+        enableEdgeToEdge()
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WatchService.ensureChannels(this)
 
