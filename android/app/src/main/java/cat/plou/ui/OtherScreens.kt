@@ -1,5 +1,7 @@
 package cat.plou.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -30,6 +33,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,11 +42,13 @@ import cat.plou.alarm.WatchService
 import cat.plou.data.AlarmConfigDto
 import cat.plou.data.PlouStore
 import cat.plou.data.Settings
+import cat.plou.data.temperature
 import cat.plou.data.WatchedLocation
 import cat.plou.forecast.Forecast
 import cat.plou.forecast.OpenMeteoClient
 import cat.plou.forecast.Place
 import cat.plou.forecast.weatherText
+import cat.plou.radar.ColorScheme
 import cat.plou.radar.Intensity
 import cat.plou.radar.LatLon
 import kotlinx.coroutines.launch
@@ -63,7 +70,7 @@ private fun PlouCard(content: @Composable () -> Unit) {
 // --------------------------------------------------------------------------
 
 @Composable
-fun ForecastScreen(active: WatchedLocation?) {
+fun ForecastScreen(active: WatchedLocation?, settings: Settings) {
     val client = remember { OpenMeteoClient() }
     var forecast by remember { mutableStateOf<Forecast?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -93,13 +100,13 @@ fun ForecastScreen(active: WatchedLocation?) {
             PlouCard {
                 val current = data.current
                 Text(
-                    current?.temperature?.let { "${it.toInt()}°" } ?: "—",
+                    settings.temperature(current?.temperature),
                     style = MaterialTheme.typography.displayLarge,
                 )
                 Text(weatherText(current?.weatherCode), style = MaterialTheme.typography.titleMedium)
                 Text(active.name, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider(Modifier.padding(vertical = 10.dp))
-                current?.apparent?.let { DataRow("Sensación", "${it.toInt()}°") }
+                current?.apparent?.let { DataRow("Sensación", settings.temperature(it)) }
                 current?.humidity?.let { DataRow("Humedad", "$it %") }
                 current?.windSpeed?.let { DataRow("Viento", "${it.toInt()} km/h") }
                 current?.windGust?.let { DataRow("Rachas", "${it.toInt()} km/h") }
@@ -116,7 +123,7 @@ fun ForecastScreen(active: WatchedLocation?) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(hour.time.takeLast(5), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${hour.temperature?.toInt() ?: "—"}°", fontWeight = FontWeight.Bold)
+                        Text(settings.temperature(hour.temperature), fontWeight = FontWeight.Bold)
                         Text(
                             hour.precipitation?.takeIf { it > 0 }?.let { "%.1f mm".format(it) }
                                 ?: "${hour.probability ?: 0} %",
@@ -137,7 +144,7 @@ fun ForecastScreen(active: WatchedLocation?) {
                         Text(day.date, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(weatherText(day.weatherCode))
                         Text(
-                            "${day.min?.toInt() ?: "—"}° / ${day.max?.toInt() ?: "—"}°",
+                            "${settings.temperature(day.min)} / ${settings.temperature(day.max)}",
                             fontWeight = FontWeight.Bold,
                         )
                     }
@@ -373,6 +380,35 @@ private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 // Ajustes
 // --------------------------------------------------------------------------
 
+/** Fila de opciones excluyentes en cápsulas. */
+@Composable
+private fun <T> ChoiceRow(label: String, value: T, options: List<Pair<T, String>>, onSelect: (T) -> Unit) {
+    Column(Modifier.padding(vertical = 6.dp)) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 6.dp)) {
+            items(options) { (opcion, etiqueta) ->
+                val selected = opcion == value
+                Text(
+                    etiqueta,
+                    color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(100.dp))
+                        .then(
+                            if (selected) {
+                                Modifier.background(BrandGradient)
+                            } else {
+                                Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
+                            },
+                        )
+                        .clickable { onSelect(opcion) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun SettingsScreen(store: PlouStore, settings: Settings) {
     val scope = rememberCoroutineScope()
@@ -393,79 +429,102 @@ fun SettingsScreen(store: PlouStore, settings: Settings) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Vigilar el radar")
-                    Switch(
-                        checked = settings.watching,
-                        onCheckedChange = { on ->
-                            save(settings.copy(watching = on))
-                            if (on) WatchService.start(context) else WatchService.stop(context)
-                        },
-                    )
+                ToggleRow("Vigilar el radar", settings.watching) { on ->
+                    save(settings.copy(watching = on))
+                    if (on) WatchService.start(context) else WatchService.stop(context)
                 }
-                Text(
-                    "Comprobar cada ${settings.checkIntervalMinutes} min",
-                    Modifier.padding(top = 10.dp),
-                )
+                Text("Comprobar cada ${settings.checkIntervalMinutes} min", Modifier.padding(top = 10.dp))
                 Slider(
                     value = settings.checkIntervalMinutes.toFloat(),
                     onValueChange = { save(settings.copy(checkIntervalMinutes = it.toInt())) },
                     valueRange = 2f..30f,
                 )
+                Text(
+                    "Comprobar más a menudo detecta antes la lluvia, pero gasta más batería " +
+                        "y más datos.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
             }
         }
 
         item {
             PlouCard {
-                SectionLabel("Aspecto del mapa")
-                Text("Opacidad del radar: ${(settings.opacity * 100).toInt()} %")
+                SectionLabel("Capa de radar")
+                ChoiceRow(
+                    "Escala de color",
+                    settings.colorScheme,
+                    ColorScheme.entries.map { it.id to it.label },
+                ) { save(settings.copy(colorScheme = it)) }
+
+                Text("Opacidad: ${(settings.opacity * 100).toInt()} %", Modifier.padding(top = 10.dp))
                 Slider(
                     value = settings.opacity,
                     onValueChange = { save(settings.copy(opacity = it)) },
                     valueRange = 0.2f..1f,
                 )
-                Text("Velocidad: ${settings.frameDurationMs} ms por fotograma")
-                Slider(
-                    value = settings.frameDurationMs.toFloat(),
-                    onValueChange = { save(settings.copy(frameDurationMs = it.toInt())) },
-                    valueRange = 150f..1200f,
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Distinguir nieve")
-                    Switch(
-                        checked = settings.showSnow,
-                        onCheckedChange = { save(settings.copy(showSnow = it)) },
-                    )
-                }
+                ToggleRow("Suavizado", settings.smooth) { save(settings.copy(smooth = it)) }
+                ToggleRow("Distinguir nieve", settings.showSnow) { save(settings.copy(showSnow = it)) }
             }
         }
 
         item {
             PlouCard {
-                SectionLabel("Tema")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("auto" to "Según el sistema", "light" to "Claro", "dark" to "Oscuro")
-                        .forEach { (value, label) ->
-                            TextButton(onClick = { save(settings.copy(theme = value)) }) {
-                                Text(
-                                    label,
-                                    fontWeight = if (settings.theme == value) {
-                                        FontWeight.Bold
-                                    } else {
-                                        FontWeight.Normal
-                                    },
-                                )
-                            }
-                        }
-                }
+                SectionLabel("Animación")
+                ChoiceRow(
+                    "Historia",
+                    settings.historyMinutes,
+                    listOf(30 to "30 min", 60 to "1 h", 120 to "2 h"),
+                ) { save(settings.copy(historyMinutes = it)) }
+                ChoiceRow(
+                    "Velocidad",
+                    settings.frameDurationMs,
+                    listOf(800 to "Lenta", 420 to "Normal", 200 to "Rápida"),
+                ) { save(settings.copy(frameDurationMs = it)) }
+            }
+        }
+
+        item {
+            PlouCard {
+                SectionLabel("Mapa base")
+                ChoiceRow(
+                    "Mapa",
+                    settings.baseMap,
+                    listOf(
+                        "auto" to "Según el tema",
+                        "light" to "Claro",
+                        "dark" to "Oscuro",
+                        "streets" to "OpenStreetMap",
+                        "terrain" to "Topográfico",
+                    ),
+                ) { save(settings.copy(baseMap = it)) }
+            }
+        }
+
+        item {
+            PlouCard {
+                SectionLabel("Aspecto")
+                ChoiceRow(
+                    "Tema",
+                    settings.theme,
+                    listOf("auto" to "Según el sistema", "light" to "Claro", "dark" to "Oscuro"),
+                ) { save(settings.copy(theme = it)) }
+            }
+        }
+
+        item {
+            PlouCard {
+                SectionLabel("Unidades")
+                ChoiceRow(
+                    "Temperatura",
+                    settings.temperatureUnit,
+                    listOf("C" to "°C", "F" to "°F"),
+                ) { save(settings.copy(temperatureUnit = it)) }
+                ChoiceRow(
+                    "Distancia",
+                    settings.distanceUnit,
+                    listOf("km" to "km", "mi" to "mi"),
+                ) { save(settings.copy(distanceUnit = it)) }
             }
         }
 
@@ -474,7 +533,7 @@ fun SettingsScreen(store: PlouStore, settings: Settings) {
                 SectionLabel("Fuentes de datos")
                 Text(
                     "Radar: RainViewer · Previsión y búsqueda: Open-Meteo · " +
-                        "Mapa base: OpenStreetMap y CARTO",
+                        "Mapa base: OpenStreetMap, CARTO y OpenTopoMap",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(

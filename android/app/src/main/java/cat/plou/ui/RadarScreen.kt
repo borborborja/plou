@@ -1,6 +1,10 @@
 package cat.plou.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.graphics.Color as AndroidColor
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -28,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,11 +40,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import cat.plou.data.PlouStore
 import cat.plou.data.Settings
+import cat.plou.data.distance
 import cat.plou.data.WatchedLocation
 import cat.plou.radar.AnalyzeOptions
 import cat.plou.radar.AndroidTileSource
@@ -54,6 +61,7 @@ import cat.plou.radar.analyzeLocation
 import cat.plou.radar.legendFor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
@@ -78,24 +86,27 @@ private fun cartoSource(name: String, path: String) = XYTileSource(
     "© OpenStreetMap, © CARTO",
 )
 
-/** Fuente de teselas de un fotograma concreto del radar. */
+/**
+ * Fuente de teselas de un fotograma concreto, identificada por su ruta y no por
+ * su posición en el índice: al llegar un fotograma nuevo, los demás conservan su
+ * URL y por tanto sus teselas ya descargadas.
+ */
 private class RadarTileSource(
-    private val index: RadarIndex,
-    private val frameIndex: Int,
+    private val host: String,
+    private val path: String,
     private val options: TileOptions,
 ) : OnlineTileSourceBase(
-    "radar-$frameIndex", 0, 7, options.size, ".png", arrayOf(""),
+    "radar-${path.substringAfterLast('/')}", 0, 7, options.size, ".png", arrayOf(""),
     "© RainViewer",
     TileSourcePolicy(2, TileSourcePolicy.FLAG_NO_BULK or TileSourcePolicy.FLAG_NO_PREVENTIVE),
 ) {
     override fun getTileURLString(pMapTileIndex: Long): String {
-        val frame = index.all.getOrNull(frameIndex) ?: return ""
         val z = MapTileIndex.getZoom(pMapTileIndex)
         val x = MapTileIndex.getX(pMapTileIndex)
         val y = MapTileIndex.getY(pMapTileIndex)
         val smooth = if (options.smooth) 1 else 0
         val snow = if (options.snow) 1 else 0
-        return "${index.host}${frame.path}/${options.size}/$z/$x/$y/${options.color}/${smooth}_$snow.png"
+        return "$host$path/${options.size}/$z/$x/$y/${options.color}/${smooth}_$snow.png"
     }
 }
 
@@ -111,6 +122,27 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
     var playing by remember { mutableStateOf(true) }
     var analysis by remember { mutableStateOf<LocationAnalysis?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    var mapRef by remember { mutableStateOf<MapView?>(null) }
+    var locating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // Permiso de ubicación: se pide sólo cuando se pulsa el botón.
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> if (granted) scope.launch { centerOnUser(context, mapRef) { locating = it } } }
+
+    fun locate() {
+        val granted = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            scope.launch { centerOnUser(context, mapRef) { locating = it } }
+        } else {
+            askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+    }
 
     val client = remember { RadarIndexClient() }
     val scheme = remember(settings.colorScheme) { ColorScheme.byId(settings.colorScheme) }
@@ -149,7 +181,13 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
         }.getOrNull()
     }
 
-    val frames = index?.all ?: emptyList()
+    // Sólo se animan los fotogramas dentro de la historia elegida.
+    val frames = remember(index, settings.historyMinutes) {
+        val all = index?.all ?: return@remember emptyList()
+        val newest = index?.past?.lastOrNull()?.time ?: return@remember all
+        val desde = newest - settings.historyMinutes * 60L
+        all.filter { it.nowcast || it.time >= desde }.ifEmpty { all.takeLast(1) }
+    }
 
     // Animación.
     LaunchedEffect(playing, frames.size, settings.frameDurationMs) {
@@ -170,14 +208,24 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
                 options = tileOptions,
                 opacity = settings.opacity,
                 center = active?.let { GeoPoint(it.lat, it.lon) },
+                baseMap = settings.baseMap,
+                onMapReady = { mapRef = it },
             )
         }
+
+        MapControls(
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            onZoomIn = { mapRef?.controller?.zoomIn() },
+            onZoomOut = { mapRef?.controller?.zoomOut() },
+            onLocate = { locate() },
+            locating = locating,
+        )
 
         Column(
             Modifier.align(Alignment.BottomCenter).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            analysis?.let { SummaryCard(active?.name.orEmpty(), it) }
+            analysis?.let { SummaryCard(active?.name.orEmpty(), it, settings) }
             Legend(scheme)
             if (frames.isNotEmpty()) {
                 Timeline(
@@ -202,9 +250,29 @@ private fun RadarMap(
     options: TileOptions,
     opacity: Float,
     center: GeoPoint?,
+    baseMap: String,
+    onMapReady: (MapView) -> Unit,
 ) {
     val context = LocalContext.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    val baseSource = remember(baseMap, dark) {
+        when (baseMap) {
+            "light" -> cartoSource("carto-light", "light_all")
+            "dark" -> cartoSource("carto-dark", "dark_all")
+            "streets" -> XYTileSource(
+                "osm", 0, 19, 256, ".png",
+                arrayOf("https://tile.openstreetmap.org/"),
+                "© Colaboradores de OpenStreetMap",
+            )
+            "terrain" -> XYTileSource(
+                "topo", 0, 17, 256, ".png",
+                arrayOf("https://a.tile.opentopomap.org/", "https://b.tile.opentopomap.org/"),
+                "© OpenTopoMap (CC-BY-SA)",
+            )
+            else -> if (dark) cartoSource("carto-dark", "dark_all") else cartoSource("carto-light", "light_all")
+        }
+    }
 
     val map = remember {
         org.osmdroid.config.Configuration.getInstance().userAgentValue = "Plou/1.0"
@@ -215,17 +283,26 @@ private fun RadarMap(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { map.onDetach() } }
+    DisposableEffect(Unit) {
+        onMapReady(map)
+        onDispose { map.onDetach() }
+    }
 
-    // Una capa por fotograma: se alternan por visibilidad para que la animación
-    // no parpadee mientras se descargan las teselas.
+    // Una capa por fotograma, indexadas por la ruta del fotograma. Al refrescar
+    // el índice cada cinco minutos sólo cambia uno de los trece: si se
+    // recrearan todas, cada refresco vaciaría las teselas ya descargadas y el
+    // mapa parpadearía. Así sólo se crea la capa nueva y se descarta la vieja.
+    val cache = remember(options) { mutableMapOf<String, TilesOverlay>() }
     val overlays = remember(index, options) {
-        index.all.indices.map { i ->
-            val provider = MapTileProviderBasic(context, RadarTileSource(index, i, options))
-            TilesOverlay(provider, context).apply {
-                loadingBackgroundColor = AndroidColor.TRANSPARENT
-                loadingLineColor = AndroidColor.TRANSPARENT
-                isEnabled = false
+        val vigentes = index.all.map { it.path }.toSet()
+        cache.keys.filterNot { it in vigentes }.forEach { cache.remove(it)?.onDetach(null) }
+        index.all.map { frame ->
+            cache.getOrPut(frame.path) {
+                val provider = MapTileProviderBasic(context, RadarTileSource(index.host, frame.path, options))
+                TilesOverlay(provider, context).apply {
+                    loadingBackgroundColor = AndroidColor.TRANSPARENT
+                    loadingLineColor = AndroidColor.TRANSPARENT
+                }
             }
         }
     }
@@ -234,20 +311,30 @@ private fun RadarMap(
         factory = { map },
         modifier = Modifier.fillMaxSize(),
         update = { view ->
-            view.setTileSource(if (dark) cartoSource("carto-dark", "dark_all") else cartoSource("carto-light", "light_all"))
-            if (view.overlays.isEmpty()) overlays.forEach { view.overlays.add(it) }
-            val matrix = android.graphics.ColorMatrix(
-                floatArrayOf(
-                    1f, 0f, 0f, 0f, 0f,
-                    0f, 1f, 0f, 0f, 0f,
-                    0f, 0f, 1f, 0f, 0f,
-                    0f, 0f, 0f, opacity, 0f,
-                ),
-            )
-            val filter = android.graphics.ColorMatrixColorFilter(matrix)
+            view.setTileSource(baseSource)
+            if (view.overlays.toList() != overlays) {
+                view.overlays.clear()
+                overlays.forEach { view.overlays.add(it) }
+            }
+            // Todas las capas quedan activas para que sus teselas se descarguen
+            // y permanezcan en caché; sólo cambia la opacidad. Si se activara
+            // y desactivara la capa, cada paso de la animación tendría que
+            // volver a pedir teselas y el mapa parpadearía.
             overlays.forEachIndexed { i, overlay ->
-                overlay.isEnabled = i == frameIndex
-                overlay.setColorFilter(filter)
+                overlay.isEnabled = true
+                val alpha = if (i == frameIndex) opacity else 0f
+                overlay.setColorFilter(
+                    android.graphics.ColorMatrixColorFilter(
+                        android.graphics.ColorMatrix(
+                            floatArrayOf(
+                                1f, 0f, 0f, 0f, 0f,
+                                0f, 1f, 0f, 0f, 0f,
+                                0f, 0f, 1f, 0f, 0f,
+                                0f, 0f, 0f, alpha, 0f,
+                            ),
+                        ),
+                    ),
+                )
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
             view.invalidate()
@@ -257,7 +344,7 @@ private fun RadarMap(
 
 /** Estado del radar sobre el punto vigilado. */
 @Composable
-private fun SummaryCard(place: String, analysis: LocationAnalysis) {
+private fun SummaryCard(place: String, analysis: LocationAnalysis, settings: Settings) {
     val overhead = analysis.overhead
     val estado = when {
         overhead != null && overhead.snow -> "Está nevando"
@@ -277,7 +364,7 @@ private fun SummaryCard(place: String, analysis: LocationAnalysis) {
                 Text(place, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             analysis.nearest?.let {
-                DataRow("Más cercano", "${"%.1f".format(it.distanceKm)} km ${it.compass}")
+                DataRow("Más cercano", "${settings.distance(it.distanceKm)} ${it.compass}")
             }
             analysis.motion?.takeIf { it.speedKmh > 2 }?.let {
                 DataRow("Se desplaza a", "${it.speedKmh.toInt()} km/h")
@@ -353,5 +440,76 @@ private fun Timeline(
             modifier = Modifier.weight(1f),
         )
         Text(label, color = Color.White, fontWeight = FontWeight.Black)
+    }
+}
+
+
+/** Botones flotantes del mapa: acercar, alejar y centrar en mi ubicación. */
+@Composable
+private fun MapControls(
+    modifier: Modifier = Modifier,
+    onZoomIn: () -> Unit,
+    onZoomOut: () -> Unit,
+    onLocate: () -> Unit,
+    locating: Boolean,
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MapButton("＋", onZoomIn)
+        MapButton("−", onZoomOut)
+        MapButton(if (locating) "…" else "⌖", onLocate, highlighted = true)
+    }
+}
+
+@Composable
+private fun MapButton(label: String, onClick: () -> Unit, highlighted: Boolean = false) {
+    Box(
+        Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .then(
+                if (highlighted) {
+                    Modifier.background(BrandGradient)
+                } else {
+                    Modifier.background(Color(0x8C14161E))
+                },
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = Color.White, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * Centra el mapa en la última posición conocida del dispositivo. Se usa el
+ * `LocationManager` del sistema para no depender de los servicios de Google.
+ */
+private suspend fun centerOnUser(
+    context: android.content.Context,
+    map: MapView?,
+    onBusy: (Boolean) -> Unit,
+) {
+    onBusy(true)
+    try {
+        val manager = context.getSystemService(android.location.LocationManager::class.java)
+        val provider = listOf(
+            android.location.LocationManager.GPS_PROVIDER,
+            android.location.LocationManager.NETWORK_PROVIDER,
+            android.location.LocationManager.PASSIVE_PROVIDER,
+        ).firstOrNull { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
+        val last = provider?.let {
+            runCatching {
+                @Suppress("MissingPermission")
+                manager.getLastKnownLocation(it)
+            }.getOrNull()
+        }
+        if (last != null && map != null) {
+            withContext(Dispatchers.Main) {
+                map.controller.animateTo(GeoPoint(last.latitude, last.longitude))
+                map.controller.setZoom(9.0)
+            }
+        }
+    } finally {
+        onBusy(false)
     }
 }
