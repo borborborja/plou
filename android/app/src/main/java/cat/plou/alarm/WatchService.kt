@@ -1,5 +1,7 @@
 package cat.plou.alarm
 
+import android.app.AlarmManager
+import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,10 +12,12 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import cat.plou.MainActivity
 import cat.plou.R
+import cat.plou.data.AlarmConfigDto
 import cat.plou.data.AlarmEvent
 import cat.plou.data.AlarmStateDto
 import cat.plou.data.PlouStore
@@ -28,8 +32,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.TimeZone
 
@@ -48,6 +50,7 @@ class WatchService : Service() {
         const val CHANNEL_ALERT = "plou-avisos"
         const val ACTION_START = "cat.plou.START_WATCH"
         const val ACTION_STOP = "cat.plou.STOP_WATCH"
+        const val ACTION_CHECK = "cat.plou.CHECK_NOW"
         private const val NOTIFICATION_ID = 1
 
         fun start(context: Context) {
@@ -88,10 +91,12 @@ class WatchService : Service() {
     }
 
     private val job = SupervisorJob()
-    private val scope = CoroutineScope(Dispatchers.Default + job)
+    // El análisis descarga teselas y las decodifica: es trabajo de E/S, y en el
+    // grupo `Default` bloquearía hilos que hacen falta para otras cosas.
+    private val scope = CoroutineScope(Dispatchers.IO + job)
     private lateinit var store: PlouStore
     private val indexClient = RadarIndexClient()
-    private var loop: Job? = null
+    private var checking: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -103,17 +108,20 @@ class WatchService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            cancelNextCheck()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
         startForegroundNotice("Vigilando el radar")
-        if (loop == null) loop = scope.launch { watchLoop() }
+        runCheck()
         return START_STICKY
     }
 
     override fun onDestroy() {
-        loop = null
+        // El despertador se deja puesto a propósito: si el sistema mata el
+        // servicio, la próxima alarma lo levanta. Sólo se quita al dejar de
+        // vigilar, que es cuando el usuario lo ha pedido.
         scope.cancel()
         super.onDestroy()
     }
@@ -140,13 +148,61 @@ class WatchService : Service() {
         }
     }
 
-    private suspend fun watchLoop() {
-        while (scope.isActive) {
-            val settings = runCatching { store.currentSettings() }.getOrNull()
-            val minutes = (settings?.checkIntervalMinutes ?: 5).coerceIn(2, 60)
-            runCatching { checkAll() }
-            delay(minutes * 60_000L)
+    /**
+     * Una comprobación y, al terminar, el despertador para la siguiente.
+     *
+     * Se toma un wake lock mientras dura: si no, el aparato puede volver a
+     * dormirse a mitad de la descarga de teselas y dejar el análisis colgado.
+     */
+    private fun runCheck() {
+        if (checking?.isActive == true) return
+
+        val power = getSystemService(PowerManager::class.java)
+        val wake = power?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "plou:comprobacion")
+        // Con caducidad, para que un fallo raro no deje el aparato despierto.
+        runCatching { wake?.acquire(3 * 60_000L) }
+
+        checking = scope.launch {
+            val minutes = (
+                runCatching { store.currentSettings() }.getOrNull()?.checkIntervalMinutes ?: 5
+                ).coerceIn(2, 60)
+            try {
+                runCatching { checkAll() }
+            } finally {
+                scheduleNextCheck(minutes)
+                if (wake?.isHeld == true) runCatching { wake.release() }
+            }
         }
+    }
+
+    private fun checkPendingIntent(): PendingIntent = PendingIntent.getBroadcast(
+        this,
+        0,
+        Intent(this, WatchAlarmReceiver::class.java).setAction(ACTION_CHECK),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    /**
+     * Programa la siguiente comprobación.
+     *
+     * `setAndAllowWhileIdle` es el único que despierta el aparato en reposo sin
+     * pedir permisos especiales. En reposo profundo el sistema agrupa estos
+     * avisos y los espacia unos nueve minutos: sigue siendo muchísimo mejor que
+     * una espera que no despierta a nadie.
+     */
+    private fun scheduleNextCheck(minutes: Int) {
+        val alarms = getSystemService(AlarmManager::class.java) ?: return
+        runCatching {
+            alarms.setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + minutes * 60_000L,
+                checkPendingIntent(),
+            )
+        }
+    }
+
+    private fun cancelNextCheck() {
+        runCatching { getSystemService(AlarmManager::class.java)?.cancel(checkPendingIntent()) }
     }
 
     /** Comprueba todas las ubicaciones con alarma activa. */
@@ -197,7 +253,9 @@ class WatchService : Service() {
                 ),
             )
 
-            store.upsert(location.copy(state = AlarmStateDto.from(outcome.state)))
+            // Se guarda sobre `base`: si la ubicación sigue al aparato, sus
+            // coordenadas son de este momento y no deben quedarse grabadas.
+            store.upsert(base.copy(state = AlarmStateDto.from(outcome.state)))
 
             val notification = outcome.notification
             if (outcome.action == AlarmAction.FIRE && notification != null) {
@@ -210,7 +268,7 @@ class WatchService : Service() {
                         body = notification.body,
                     ),
                 )
-                raise(location.id, location.name, notification)
+                raise(location.id, location.name, notification, location.alarm)
             }
         }
 
@@ -221,8 +279,24 @@ class WatchService : Service() {
         )
     }
 
+    /**
+     * ¿Puede el sistema abrir la pantalla de alarma? Desde Android 14 el permiso
+     * de pantalla completa sólo se concede solo a apps de llamadas y despertadores.
+     */
+    private fun canUseFullScreen(): Boolean =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            getSystemService(NotificationManager::class.java)?.canUseFullScreenIntent() ?: false
+        } else {
+            true
+        }
+
     /** Lanza el aviso: notificación de alta prioridad y pantalla completa. */
-    private fun raise(locationId: Long, place: String, notification: AlarmNotification) {
+    private fun raise(
+        locationId: Long,
+        place: String,
+        notification: AlarmNotification,
+        alarm: AlarmConfigDto,
+    ) {
         val full = Intent(this, AlarmActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             putExtra(AlarmActivity.EXTRA_TITLE, notification.title)
@@ -251,5 +325,46 @@ class WatchService : Service() {
             NotificationManagerCompat.from(this)
                 .notify(1000 + locationId.toInt(), builder.build())
         }
+
+        val power = getSystemService(PowerManager::class.java)
+        val keyguard = getSystemService(KeyguardManager::class.java)
+        val entrega = alarmDelivery(
+            canFullScreen = canUseFullScreen(),
+            interactive = power?.isInteractive ?: true,
+            locked = keyguard?.isKeyguardLocked ?: false,
+        )
+        // Si la pantalla de alarma no va a abrirse, el tono lo toca el propio
+        // servicio: sin esto el aviso se quedaría en el pitido genérico del
+        // sistema y el tono, el volumen y la subida gradual no servirían de nada.
+        if (entrega == AlarmDelivery.SOUND && alarm.tone != "SILENT") {
+            runCatching {
+                playTone(
+                    tone = AlarmTone.of(alarm.tone),
+                    volume = alarm.volume,
+                    // Aquí nunca en bucle: no hay pantalla que permita callarlo.
+                    loop = false,
+                    seconds = alarm.soundSeconds.coerceIn(3, 30),
+                    fadeIn = alarm.fadeIn,
+                )
+            }
+        }
     }
 }
+
+/** Por dónde va a enterarse el usuario del aviso. */
+internal enum class AlarmDelivery { SCREEN, SOUND }
+
+/**
+ * Decide cómo entra el aviso.
+ *
+ * El sistema sólo abre la pantalla de alarma si tiene permiso de pantalla
+ * completa y el aparato está bloqueado o con la pantalla apagada. En cualquier
+ * otro caso degrada el aviso a una notificación flotante, y entonces el tono
+ * elegido tiene que sonarlo el servicio.
+ */
+internal fun alarmDelivery(
+    canFullScreen: Boolean,
+    interactive: Boolean,
+    locked: Boolean,
+): AlarmDelivery =
+    if (canFullScreen && (!interactive || locked)) AlarmDelivery.SCREEN else AlarmDelivery.SOUND
