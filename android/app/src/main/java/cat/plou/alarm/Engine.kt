@@ -219,7 +219,19 @@ fun evaluateAlarm(input: EvaluateInput): AlarmOutcome {
         )
     }
 
-    if (state.active) {
+    /**
+     * ¿Se ha llegado a avisar de *esta* situación?
+     *
+     * Un episodio que empieza dentro de las horas de silencio queda marcado como
+     * activo sin que nadie haya sido avisado. Si eso contara como avisado, al
+     * terminar la franja no se diría nunca —por mucho que siguiera lloviendo
+     * encima—, porque el episodio ya no sería nuevo. Un aviso pertenece a la
+     * situación en curso sólo si es posterior al último cierre.
+     */
+    val announced = state.lastFiredAt != null &&
+        (state.lastClearedAt == null || state.lastFiredAt > state.lastClearedAt)
+
+    if (state.active && announced) {
         if (!config.repeat) {
             return AlarmOutcome(
                 AlarmAction.NONE,
