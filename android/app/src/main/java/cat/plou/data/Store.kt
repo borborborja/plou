@@ -127,7 +127,23 @@ data class Settings(
     /** Minutos entre comprobaciones del vigilante. */
     val checkIntervalMinutes: Int = 5,
     val watching: Boolean = false,
+    /** `auto`, `light`, `dark`, `streets` o `terrain`. */
+    val baseMap: String = "auto",
+    /** `C` o `F`. */
+    val temperatureUnit: String = "C",
+    /** `km` o `mi`. */
+    val distanceUnit: String = "km",
 )
+
+/** Temperatura en la unidad elegida. */
+fun Settings.temperature(celsius: Double?): String {
+    if (celsius == null) return "—"
+    return if (temperatureUnit == "F") "${(celsius * 9 / 5 + 32).toInt()}°F" else "${celsius.toInt()}°"
+}
+
+/** Distancia en la unidad elegida. */
+fun Settings.distance(km: Double): String =
+    if (distanceUnit == "mi") "%.1f mi".format(km * 0.621371) else "%.1f km".format(km)
 
 private val Context.dataStore by preferencesDataStore(name = "plou")
 
