@@ -7,6 +7,9 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Sin este permiso el sistema ignora el intent a pantalla completa desde
+         Android 10 y la pantalla de alarma no llega a aparecer nunca. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- El vigilante corre en primer plano: es lo que permite que la alarma
          suene con la pantalla apagada. -->
@@ -39,6 +42,10 @@
             android:launchMode="singleInstance"
             android:showOnLockScreen="true"
             android:theme="@style/Theme.Plou.Alarm" />
+
+        <receiver
+            android:name=".alarm.WatchAlarmReceiver"
+            android:exported="false" />
 
         <service
             android:name=".alarm.WatchService"
