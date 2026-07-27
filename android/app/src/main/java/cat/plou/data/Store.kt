@@ -26,7 +26,16 @@ data class WatchedLocation(
     val lon: Double,
     val alarm: AlarmConfigDto = AlarmConfigDto(),
     val state: AlarmStateDto = AlarmStateDto(),
+    /**
+     * Si es cierto, la ubicación no es un punto fijo sino tu posición: antes de
+     * cada comprobación se actualiza con la última lectura del dispositivo, de
+     * modo que el aviso depende de dónde estés en cada momento.
+     */
+    val followDevice: Boolean = false,
 )
+
+/** Identificador reservado para la alarma que sigue tu posición. */
+const val FOLLOW_DEVICE_ID = 1L
 
 /** Copia serializable de la configuración de alarma. */
 @Serializable

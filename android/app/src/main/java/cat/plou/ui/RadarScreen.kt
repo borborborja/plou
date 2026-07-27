@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +71,8 @@ import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.FolderOverlay
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.TilesOverlay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -115,7 +118,13 @@ private class RadarTileSource(
  * la leyenda de intensidad y el estado del punto vigilado.
  */
 @Composable
-fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) {
+fun RadarScreen(
+    store: PlouStore,
+    settings: Settings,
+    active: WatchedLocation?,
+    locations: List<WatchedLocation>,
+    onSelect: (WatchedLocation) -> Unit,
+) {
     val context = LocalContext.current
     var index by remember { mutableStateOf<RadarIndex?>(null) }
     var frame by remember { mutableIntStateOf(0) }
@@ -125,12 +134,19 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
 
     var mapRef by remember { mutableStateOf<MapView?>(null) }
     var locating by remember { mutableStateOf(false) }
+    var myPosition by remember { mutableStateOf<GeoPoint?>(null) }
     val scope = rememberCoroutineScope()
 
     // Permiso de ubicación: se pide sólo cuando se pulsa el botón.
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> if (granted) scope.launch { centerOnUser(context, mapRef) { locating = it } } }
+    ) { granted ->
+        if (granted) {
+            scope.launch {
+                centerOnUser(context, mapRef, { locating = it }, { myPosition = it })
+            }
+        }
+    }
 
     fun locate() {
         val granted = ContextCompat.checkSelfPermission(
@@ -138,7 +154,7 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
             Manifest.permission.ACCESS_COARSE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) {
-            scope.launch { centerOnUser(context, mapRef) { locating = it } }
+            scope.launch { centerOnUser(context, mapRef, { locating = it }, { myPosition = it }) }
         } else {
             askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
@@ -212,9 +228,31 @@ fun RadarScreen(store: PlouStore, settings: Settings, active: WatchedLocation?) 
                 opacity = settings.opacity,
                 center = active?.let { GeoPoint(it.lat, it.lon) },
                 baseMap = settings.baseMap,
+                myPosition = myPosition,
+                watched = active?.let { GeoPoint(it.lat, it.lon) },
                 onMapReady = { mapRef = it },
             )
         }
+
+        LocationMenu(
+            locations = locations,
+            active = active,
+            onSelect = onSelect,
+            onWatchHere = {
+                val centro = mapRef?.mapCenter ?: return@LocationMenu
+                scope.launch {
+                    val nueva = WatchedLocation(
+                        id = System.currentTimeMillis(),
+                        name = "%.3f, %.3f".format(centro.latitude, centro.longitude),
+                        lat = centro.latitude,
+                        lon = centro.longitude,
+                    )
+                    store.upsert(nueva)
+                    onSelect(nueva)
+                }
+            },
+            modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+        )
 
         MapControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
@@ -254,6 +292,8 @@ private fun RadarMap(
     opacity: Float,
     center: GeoPoint?,
     baseMap: String,
+    myPosition: GeoPoint?,
+    watched: GeoPoint?,
     onMapReady: (MapView) -> Unit,
 ) {
     val context = LocalContext.current
@@ -328,12 +368,17 @@ private fun RadarMap(
     )
     val visibleFilter = remember(opacity) { alphaFilter(opacity) }
     val hiddenFilter = remember { alphaFilter(0f) }
+    val marcadores = remember { FolderOverlay() }
 
     AndroidView(
         factory = { map },
         modifier = Modifier.fillMaxSize(),
         update = { view ->
-            view.setTileSource(baseSource)
+            // `setTileSource` vacía la caché de teselas y las vuelve a pedir
+            // todas, así que sólo puede llamarse cuando el mapa base cambia de
+            // verdad: hacerlo en cada recomposición recargaba el mapa entero en
+            // cada fotograma de la animación.
+            if (view.tileProvider.tileSource !== baseSource) view.setTileSource(baseSource)
             // Sólo se toca la lista de capas cuando cambia el conjunto: rehacerla
             // en cada fotograma reiniciaría el dibujado y volvería a parpadear.
             if (view.overlays.size != overlays.size || !view.overlays.containsAll(overlays)) {
@@ -350,6 +395,15 @@ private fun RadarMap(
                 overlay.setColorFilter(if (i == frameIndex) visibleFilter else hiddenFilter)
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
+
+            // Marcadores: dónde estás y qué punto se está vigilando.
+            marcadores.items.apply {
+                clear()
+                myPosition?.let { add(punto(it, BrandBlue.toArgb())) }
+                watched?.let { add(punto(it, BrandPink.toArgb())) }
+            }
+            if (!view.overlays.contains(marcadores)) view.overlays.add(marcadores)
+
             view.invalidate()
         },
     )
@@ -494,35 +548,72 @@ private fun MapButton(label: String, onClick: () -> Unit, highlighted: Boolean =
 }
 
 /**
- * Centra el mapa en la última posición conocida del dispositivo. Se usa el
- * `LocationManager` del sistema para no depender de los servicios de Google.
+ * Centra el mapa en la posición del dispositivo y la señala con un punto, para
+ * que se vea dónde estás y no sólo que el mapa se ha movido. Se usa el
+ * `LocationManager` del sistema, sin depender de los servicios de Google.
  */
 private suspend fun centerOnUser(
     context: android.content.Context,
     map: MapView?,
     onBusy: (Boolean) -> Unit,
+    onFound: (GeoPoint) -> Unit,
 ) {
     onBusy(true)
     try {
-        val manager = context.getSystemService(android.location.LocationManager::class.java)
-        val provider = listOf(
-            android.location.LocationManager.GPS_PROVIDER,
-            android.location.LocationManager.NETWORK_PROVIDER,
-            android.location.LocationManager.PASSIVE_PROVIDER,
-        ).firstOrNull { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
-        val last = provider?.let {
-            runCatching {
-                @Suppress("MissingPermission")
-                manager.getLastKnownLocation(it)
-            }.getOrNull()
-        }
-        if (last != null && map != null) {
+        val punto = deviceLocation(context) ?: return
+        onFound(punto)
+        if (map != null) {
             withContext(Dispatchers.Main) {
-                map.controller.animateTo(GeoPoint(last.latitude, last.longitude))
+                map.controller.animateTo(punto)
                 map.controller.setZoom(9.0)
             }
         }
     } finally {
         onBusy(false)
+    }
+}
+
+/** Última posición conocida del dispositivo, o `null` si no hay ninguna. */
+internal fun deviceLocation(context: android.content.Context): GeoPoint? {
+    val manager = context.getSystemService(android.location.LocationManager::class.java)
+        ?: return null
+    val proveedores = listOf(
+        android.location.LocationManager.GPS_PROVIDER,
+        android.location.LocationManager.NETWORK_PROVIDER,
+        android.location.LocationManager.PASSIVE_PROVIDER,
+    )
+    // Se queda con la lectura más reciente de entre los proveedores activos.
+    val mejor = proveedores
+        .filter { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
+        .mapNotNull {
+            runCatching {
+                @Suppress("MissingPermission")
+                manager.getLastKnownLocation(it)
+            }.getOrNull()
+        }
+        .maxByOrNull { it.time }
+    return mejor?.let { GeoPoint(it.latitude, it.longitude) }
+}
+
+
+/** Punto de color sobre el mapa: dónde estás o qué se está vigilando. */
+private fun punto(at: GeoPoint, color: Int): Overlay = object : Overlay() {
+    private val relleno = android.graphics.Paint().apply {
+        isAntiAlias = true
+        this.color = color
+        style = android.graphics.Paint.Style.FILL
+    }
+    private val borde = android.graphics.Paint().apply {
+        isAntiAlias = true
+        this.color = android.graphics.Color.WHITE
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 4f
+    }
+
+    override fun draw(canvas: android.graphics.Canvas, map: MapView?, shadow: Boolean) {
+        if (shadow || map == null) return
+        val p = map.projection.toPixels(at, null)
+        canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, relleno)
+        canvas.drawCircle(p.x.toFloat(), p.y.toFloat(), 11f, borde)
     }
 }

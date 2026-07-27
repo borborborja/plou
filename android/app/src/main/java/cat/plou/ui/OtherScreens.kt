@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import cat.plou.alarm.WatchService
 import cat.plou.data.AlarmConfigDto
+import cat.plou.data.FOLLOW_DEVICE_ID
 import cat.plou.data.PlouStore
 import cat.plou.data.Settings
 import cat.plou.data.temperature
@@ -70,7 +71,12 @@ private fun PlouCard(content: @Composable () -> Unit) {
 // --------------------------------------------------------------------------
 
 @Composable
-fun ForecastScreen(active: WatchedLocation?, settings: Settings) {
+fun ForecastScreen(
+    active: WatchedLocation?,
+    settings: Settings,
+    locations: List<WatchedLocation>,
+    onSelect: (WatchedLocation) -> Unit,
+) {
     val client = remember { OpenMeteoClient() }
     var forecast by remember { mutableStateOf<Forecast?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -96,6 +102,7 @@ fun ForecastScreen(active: WatchedLocation?, settings: Settings) {
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { LocationMenu(locations, active, onSelect) }
         item {
             PlouCard {
                 val current = data.current
@@ -184,10 +191,44 @@ fun AlarmsScreen(
         return
     }
 
+    val siguiendo = locations.firstOrNull { it.followDevice }
+
     LazyColumn(
         Modifier.fillMaxSize().padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        // Alarma por situación actual: avisa según dónde estés en cada momento.
+        item {
+            PlouCard {
+                SectionLabel("Mi posición")
+                Text(
+                    "Avisa según dónde estés en cada momento, en vez de vigilar un " +
+                        "punto fijo. Antes de cada comprobación se toma tu posición.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+                ToggleRow("Vigilar mi posición", siguiendo?.alarm?.enabled == true) { on ->
+                    scope.launch {
+                        val actual = siguiendo ?: WatchedLocation(
+                            id = FOLLOW_DEVICE_ID,
+                            name = "Mi posición",
+                            lat = 0.0,
+                            lon = 0.0,
+                            followDevice = true,
+                        )
+                        store.upsert(actual.copy(alarm = actual.alarm.copy(enabled = on)))
+                    }
+                }
+                if (siguiendo != null) {
+                    Row(Modifier.padding(top = 8.dp)) {
+                        TextButton(onClick = { editing = siguiendo }) {
+                            Text("Configurar esta alarma")
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             PlouCard {
                 SectionLabel("Añadir ubicación")
@@ -229,7 +270,7 @@ fun AlarmsScreen(
             }
         }
 
-        items(locations, key = { it.id }) { location ->
+        items(locations.filterNot { it.followDevice }, key = { it.id }) { location ->
             PlouCard {
                 Text(location.name, style = MaterialTheme.typography.titleMedium)
                 Text(
