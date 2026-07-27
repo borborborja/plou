@@ -232,7 +232,20 @@ export function evaluateAlarm(input: EvaluateInput): AlarmOutcome {
 
   const alreadyActive = state.active === 1;
 
-  if (alreadyActive) {
+  /**
+   * ¿Se ha llegado a avisar de *esta* situación?
+   *
+   * Un episodio que empieza dentro de las horas de silencio queda marcado como
+   * activo sin que nadie haya sido avisado. Si eso contara como avisado, al
+   * terminar la franja no se diría nunca —por mucho que siguiera lloviendo
+   * encima—, porque el episodio ya no sería nuevo. Un aviso pertenece a la
+   * situación en curso sólo si es posterior al último cierre.
+   */
+  const announced =
+    state.last_fired_at !== null &&
+    (state.last_cleared_at === null || state.last_fired_at > state.last_cleared_at);
+
+  if (alreadyActive && announced) {
     if (!config.repeat) {
       return { action: 'none', reason: 'aviso ya emitido para esta situación', state: { ...state, active_kind: trigger.kind } };
     }

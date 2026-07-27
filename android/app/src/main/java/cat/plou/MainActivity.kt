@@ -51,6 +51,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            // Si la vigilancia está activada pero el servicio no corre —por un
+            // reinicio o porque el sistema lo mató—, se vuelve a levantar al
+            // abrir la app. `startForegroundService` es idempotente.
+            LaunchedEffect(settings.watching) {
+                if (settings.watching) WatchService.start(this@MainActivity)
+            }
+
             PlouTheme(settings.theme) {
                 PlouApp(store = store, settings = settings)
             }

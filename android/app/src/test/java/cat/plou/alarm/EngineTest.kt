@@ -143,9 +143,46 @@ class EngineTest {
         val config = AlarmConfig(quietHours = TimeWindow(enabled = true, from = "22:00", to = "07:00"))
         val out = evaluateAlarm(input(config, now = madrid(23, 30)))
         assertEquals(AlarmAction.SUPPRESS, out.action)
-        // La situación queda marcada como activa para no avisar tarde al amanecer.
+        // Queda marcada como activa, pero sin haber avisado a nadie: eso es lo
+        // que permite decirlo al levantarse el silencio si sigue lloviendo.
         assertTrue(out.state.active)
         assertNull(out.notification)
+    }
+
+    @Test
+    fun `al terminar el silencio avisa si el episodio sigue vivo`() {
+        val config = AlarmConfig(quietHours = TimeWindow(enabled = true, from = "22:00", to = "07:00"))
+        val noche = evaluateAlarm(input(config, now = madrid(23, 30)))
+        assertEquals(AlarmAction.SUPPRESS, noche.action)
+
+        // Sigue lloviendo a las 07:30, ya fuera de la franja de silencio.
+        val manana = evaluateAlarm(input(config, state = noche.state, now = madrid(7, 30)))
+        assertEquals(AlarmAction.FIRE, manana.action)
+    }
+
+    @Test
+    fun `no repite el aviso de una situacion que si se anuncio`() {
+        val primero = evaluateAlarm(input())
+        assertEquals(AlarmAction.FIRE, primero.action)
+
+        val segundo = evaluateAlarm(input(state = primero.state, now = madrid(12, 30)))
+        assertEquals(AlarmAction.NONE, segundo.action)
+        assertEquals("aviso ya emitido para esta situación", segundo.reason)
+    }
+
+    @Test
+    fun `un aviso anterior al ultimo cierre no cuenta para la situacion nueva`() {
+        // Avisó a las 08:00, escampó a las 10:00; lo de ahora es otro episodio.
+        val out = evaluateAlarm(
+            input(
+                state = AlarmState(
+                    active = true,
+                    lastFiredAt = madrid(8, 0),
+                    lastClearedAt = madrid(10, 0),
+                ),
+            ),
+        )
+        assertEquals(AlarmAction.FIRE, out.action)
     }
 
     @Test

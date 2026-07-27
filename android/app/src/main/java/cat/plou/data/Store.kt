@@ -12,6 +12,7 @@ import cat.plou.alarm.AlarmState
 import cat.plou.alarm.TimeWindow
 import cat.plou.radar.Intensity
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -205,11 +206,14 @@ class PlouStore(private val context: Context) {
             runCatching { json.decodeFromString<List<WatchedLocation>>(it) }.getOrNull()
         } ?: emptyList()
 
-    suspend fun currentLocations(): List<WatchedLocation> {
-        var out: List<WatchedLocation> = emptyList()
-        context.dataStore.edit { out = decodeLocations(it) }
-        return out
-    }
+    /**
+     * Lectura puntual. Se usa `data.first()` y no `edit`: `edit` abre una
+     * transacción de escritura, reescribe el fichero aunque no cambie nada y
+     * hace que el flujo vuelva a emitir, lo que provocaba escrituras y
+     * recomposiciones en cada ciclo del vigilante.
+     */
+    suspend fun currentLocations(): List<WatchedLocation> =
+        decodeLocations(context.dataStore.data.first())
 
     suspend fun saveLocations(list: List<WatchedLocation>) {
         context.dataStore.edit { it[KEY_LOCATIONS] = json.encodeToString(list) }
@@ -231,15 +235,10 @@ class PlouStore(private val context: Context) {
         }
     }
 
-    suspend fun currentSettings(): Settings {
-        var out = Settings()
-        context.dataStore.edit { prefs ->
-            out = prefs[KEY_SETTINGS]?.let {
-                runCatching { json.decodeFromString<Settings>(it) }.getOrNull()
-            } ?: Settings()
-        }
-        return out
-    }
+    suspend fun currentSettings(): Settings =
+        context.dataStore.data.first()[KEY_SETTINGS]?.let {
+            runCatching { json.decodeFromString<Settings>(it) }.getOrNull()
+        } ?: Settings()
 
     suspend fun saveSettings(settings: Settings) {
         context.dataStore.edit { it[KEY_SETTINGS] = json.encodeToString(settings) }
