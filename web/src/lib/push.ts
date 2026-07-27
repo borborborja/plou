@@ -69,9 +69,25 @@ export async function disablePush(): Promise<void> {
   await subscription.unsubscribe().catch(() => undefined);
 }
 
+/**
+ * Comprueba que los avisos siguen realmente en pie.
+ *
+ * No basta con mirar el navegador: el servidor descarta las suscripciones que
+ * el servicio de push rechaza, y entonces la app seguiría diciendo «avisos
+ * activados» mientras nadie los envía. Si el servidor ya no conoce ésta, se
+ * vuelve a registrar en silencio; no hace falta permiso porque ya se tiene.
+ */
 export async function hasActiveSubscription(): Promise<boolean> {
   if (!pushSupported()) return false;
   const reg = await registerServiceWorker();
   if (!reg) return false;
-  return (await reg.pushManager.getSubscription()) !== null;
+  const subscription = await reg.pushManager.getSubscription();
+  if (!subscription) return false;
+
+  const conocidas = await api.pushSubscriptions().catch(() => null);
+  // Sin respuesta del servidor no se toca nada: puede ser falta de red.
+  if (conocidas && !conocidas.some((s) => s.endpoint === subscription.endpoint)) {
+    await api.subscribePush(subscription.toJSON()).catch(() => undefined);
+  }
+  return true;
 }

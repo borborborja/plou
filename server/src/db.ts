@@ -433,6 +433,14 @@ export function listSubscriptions(db: Db, deviceId: string): SubscriptionRow[] {
     .all(deviceId) as SubscriptionRow[];
 }
 
+/** Dispositivo al que pertenece una suscripción, o `null` si no se conoce. */
+export function deviceForSubscription(db: Db, endpoint: string): string | null {
+  const row = db
+    .prepare('SELECT device_id FROM push_subscriptions WHERE endpoint = ?')
+    .get(endpoint) as { device_id: string } | undefined;
+  return row?.device_id ?? null;
+}
+
 export function deleteSubscription(db: Db, endpoint: string): void {
   db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
 }
