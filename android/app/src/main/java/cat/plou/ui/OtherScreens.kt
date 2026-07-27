@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -38,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import cat.plou.alarm.AlarmTone
 import cat.plou.alarm.WatchService
@@ -78,6 +81,7 @@ fun ForecastScreen(
     active: WatchedLocation?,
     settings: Settings,
     locations: List<WatchedLocation>,
+    topInset: Dp,
     onSelect: (WatchedLocation) -> Unit,
 ) {
     val client = remember { OpenMeteoClient() }
@@ -102,7 +106,8 @@ fun ForecastScreen(
     }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(12.dp),
+        Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = topInset, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { LocationMenu(locations, active, onSelect) }
@@ -172,6 +177,7 @@ fun ForecastScreen(
 fun AlarmsScreen(
     store: PlouStore,
     locations: List<WatchedLocation>,
+    topInset: Dp,
     onSelect: (WatchedLocation) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -185,6 +191,7 @@ fun AlarmsScreen(
     if (target != null) {
         AlarmEditor(
             location = target,
+            topInset = topInset,
             onSave = { updated ->
                 scope.launch { store.upsert(updated) }
                 editing = null
@@ -197,7 +204,8 @@ fun AlarmsScreen(
     val siguiendo = locations.firstOrNull { it.followDevice }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(12.dp),
+        Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = topInset, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         // Alarma por situación actual: avisa según dónde estés en cada momento.
@@ -319,6 +327,7 @@ fun AlarmsScreen(
 @Composable
 private fun AlarmEditor(
     location: WatchedLocation,
+    topInset: Dp,
     onSave: (WatchedLocation) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -328,7 +337,8 @@ private fun AlarmEditor(
     DisposableEffect(Unit) { onDispose { detener?.invoke() } }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(12.dp),
+        Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = topInset, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -493,14 +503,15 @@ private fun <T> ChoiceRow(label: String, value: T, options: List<Pair<T, String>
 }
 
 @Composable
-fun SettingsScreen(store: PlouStore, settings: Settings) {
+fun SettingsScreen(store: PlouStore, settings: Settings, topInset: Dp) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
     fun save(next: Settings) = scope.launch { store.saveSettings(next) }
 
     LazyColumn(
-        Modifier.fillMaxSize().padding(12.dp),
+        Modifier.fillMaxSize().navigationBarsPadding(),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = topInset, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {

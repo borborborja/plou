@@ -17,7 +17,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,10 +28,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cat.plou.R
@@ -57,18 +60,33 @@ fun PlouApp(store: PlouStore, settings: Settings) {
     var point by remember { mutableStateOf<WatchedLocation?>(null) }
     val active = point ?: locations.firstOrNull()
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = { TabSwitch(current = tab, onSelect = { tab = it }) },
-    ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
-            when (tab) {
-                Tab.RADAR -> RadarScreen(store, settings, active, locations) { point = it }
-                Tab.FORECAST -> ForecastScreen(active, settings, locations) { point = it }
-                Tab.ALARMS -> AlarmsScreen(store, locations) { point = it }
-                Tab.SETTINGS -> SettingsScreen(store, settings)
-            }
+    // El mapa ocupa toda la pantalla y pasa por debajo de la barra superior; el
+    // resto de secciones empiezan justo debajo de ella. La altura de la barra se
+    // mide para no tener que suponerla.
+    val density = LocalDensity.current
+    var barHeight by remember { mutableStateOf(0.dp) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        when (tab) {
+            Tab.RADAR ->
+                RadarScreen(store, settings, active, locations, barHeight) { point = it }
+            Tab.FORECAST ->
+                ForecastScreen(active, settings, locations, barHeight) { point = it }
+            Tab.ALARMS -> AlarmsScreen(store, locations, barHeight) { point = it }
+            Tab.SETTINGS -> SettingsScreen(store, settings, barHeight)
         }
+
+        TabSwitch(
+            current = tab,
+            onSelect = { tab = it },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { barHeight = with(density) { it.height.toDp() } },
+        )
     }
 }
 
@@ -77,14 +95,22 @@ fun PlouApp(store: PlouStore, settings: Settings) {
  * de marca, que es el único elemento con degradado de cada pantalla.
  */
 @Composable
-private fun TabSwitch(current: Tab, onSelect: (Tab) -> Unit) {
+private fun TabSwitch(current: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = Modifier) {
+    val fondo = MaterialTheme.colorScheme.background
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
+            // Degradado de fondo: el mapa se ve por debajo pero los iconos y la
+            // barra de estado siguen legibles sobre él.
+            .background(
+                Brush.verticalGradient(
+                    listOf(fondo.copy(alpha = 0.92f), fondo.copy(alpha = 0.75f), Color.Transparent),
+                ),
+            )
             .statusBarsPadding()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 16.dp)
             .clip(RoundedCornerShape(100.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.92f))
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {

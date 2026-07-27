@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -129,6 +131,7 @@ fun RadarScreen(
     settings: Settings,
     active: WatchedLocation?,
     locations: List<WatchedLocation>,
+    topInset: Dp,
     onSelect: (WatchedLocation) -> Unit,
 ) {
     val context = LocalContext.current
@@ -284,7 +287,10 @@ fun RadarScreen(
                     onSelect(nueva)
                 }
             },
-            modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 12.dp, top = topInset)
+                .padding(top = 4.dp),
         )
 
         // Estado del radar: cuántos fotogramas hay listos y si hay ecos. Sin
@@ -293,11 +299,17 @@ fun RadarScreen(
             frames = frames.size,
             loaded = loadedFrames,
             analysis = analysis,
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = topInset)
+                .padding(top = 52.dp),
         )
 
         MapControls(
-            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 12.dp, top = topInset)
+                .padding(top = 4.dp),
             onZoomIn = { mapRef?.controller?.zoomIn() },
             onZoomOut = { mapRef?.controller?.zoomOut() },
             onLocate = { locate() },
@@ -305,7 +317,10 @@ fun RadarScreen(
         )
 
         Column(
-            Modifier.align(Alignment.BottomCenter).padding(12.dp),
+            Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             analysis?.let { SummaryCard(active?.name.orEmpty(), it, settings) }
