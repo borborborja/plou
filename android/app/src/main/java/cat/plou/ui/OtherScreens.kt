@@ -24,6 +24,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,7 +39,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import cat.plou.alarm.AlarmTone
 import cat.plou.alarm.WatchService
+import cat.plou.alarm.playTone
 import cat.plou.data.AlarmConfigDto
 import cat.plou.data.FOLLOW_DEVICE_ID
 import cat.plou.data.PlouStore
@@ -320,6 +323,9 @@ private fun AlarmEditor(
     onCancel: () -> Unit,
 ) {
     var alarm by remember { mutableStateOf(location.alarm) }
+    // La vista previa del tono se corta al salir del editor.
+    var detener by remember { mutableStateOf<(() -> Unit)?>(null) }
+    DisposableEffect(Unit) { onDispose { detener?.invoke() } }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(12.dp),
@@ -396,9 +402,45 @@ private fun AlarmEditor(
                     alarm = alarm.copy(quietEnabled = it)
                 }
 
+                SectionLabel("Sonido")
+                ChoiceRow(
+                    "Tono",
+                    alarm.tone,
+                    AlarmTone.entries.map { it.name to it.label },
+                ) { alarm = alarm.copy(tone = it) }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = {
+                        detener?.invoke()
+                        detener = playTone(
+                            tone = AlarmTone.of(alarm.tone),
+                            volume = alarm.volume,
+                            seconds = 4,
+                        )
+                    }) { Text("Escuchar") }
+                    TextButton(onClick = { detener?.invoke(); detener = null }) { Text("Parar") }
+                }
+
+                Text("Volumen: ${(alarm.volume * 100).toInt()} %")
+                Slider(
+                    value = alarm.volume,
+                    onValueChange = { alarm = alarm.copy(volume = it) },
+                    valueRange = 0.1f..1f,
+                )
+                ToggleRow("Vibrar", alarm.vibrate) { alarm = alarm.copy(vibrate = it) }
+                ToggleRow("Repetir hasta descartar", alarm.loopSound) {
+                    alarm = alarm.copy(loopSound = it)
+                }
+                ToggleRow("Subir el volumen gradualmente", alarm.fadeIn) {
+                    alarm = alarm.copy(fadeIn = it)
+                }
+
                 Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = onCancel) { Text("Cancelar") }
-                    Button(onClick = { onSave(location.copy(alarm = alarm)) }) { Text("Guardar") }
+                    TextButton(onClick = { detener?.invoke(); onCancel() }) { Text("Cancelar") }
+                    Button(onClick = {
+                        detener?.invoke()
+                        onSave(location.copy(alarm = alarm))
+                    }) { Text("Guardar") }
                 }
             }
         }
@@ -504,8 +546,28 @@ fun SettingsScreen(store: PlouStore, settings: Settings) {
                     onValueChange = { save(settings.copy(opacity = it)) },
                     valueRange = 0.2f..1f,
                 )
+                ChoiceRow(
+                    "Aspecto",
+                    settings.blend,
+                    listOf("plain" to "Nítido", "blend" to "Integrado"),
+                ) { save(settings.copy(blend = it)) }
                 ToggleRow("Suavizado", settings.smooth) { save(settings.copy(smooth = it)) }
                 ToggleRow("Distinguir nieve", settings.showSnow) { save(settings.copy(showSnow = it)) }
+                ToggleRow("Zona sin cobertura", settings.showCoverage) {
+                    save(settings.copy(showCoverage = it))
+                }
+            }
+        }
+
+        item {
+            PlouCard {
+                SectionLabel("Sobre el mapa")
+                ToggleRow("Círculo de vigilancia", settings.showRadius) {
+                    save(settings.copy(showRadius = it))
+                }
+                ToggleRow("Flecha de desplazamiento", settings.showMotionArrow) {
+                    save(settings.copy(showMotionArrow = it))
+                }
             }
         }
 
