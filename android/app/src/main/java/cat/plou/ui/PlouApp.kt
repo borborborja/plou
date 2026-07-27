@@ -58,7 +58,12 @@ fun PlouApp(store: PlouStore, settings: Settings) {
 
     // Punto activo: la primera ubicación guardada, o el centro por defecto.
     var point by remember { mutableStateOf<WatchedLocation?>(null) }
-    val active = point ?: locations.firstOrNull()
+    // La ubicación que sigue al dispositivo nace en 0,0 y sólo tiene posición
+    // real después de la primera comprobación: no puede ser el punto por
+    // defecto, o el mapa se abriría en mitad del Atlántico.
+    val active = point ?: locations.firstOrNull {
+        !it.followDevice || it.lat != 0.0 || it.lon != 0.0
+    } ?: locations.firstOrNull()
 
     // El mapa ocupa toda la pantalla y pasa por debajo de la barra superior; el
     // resto de secciones empiezan justo debajo de ella. La altura de la barra se
