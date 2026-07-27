@@ -1,0 +1,120 @@
+name: APK de release
+
+# Se dispara al publicar una release en GitHub, y también a mano desde la
+# pestaña Actions por si hace falta reconstruir un artefacto.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a compilar (p. ej. 1.2.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Deducir la versión
+        id: version
+        run: |
+          # De la etiqueta de la release (v1.2.3) sale el nombre de versión, y
+          # de sus tres números un versionCode que siempre crece.
+          if [ "${{ github.event_name }}" = "release" ]; then
+            NAME="${GITHUB_REF_NAME#v}"
+          else
+            NAME="${{ inputs.version }}"
+          fi
+          MAJOR=$(echo "$NAME" | cut -d. -f1)
+          MINOR=$(echo "$NAME" | cut -d. -f2)
+          PATCH=$(echo "$NAME" | cut -d. -f3)
+          CODE=$(( ${MAJOR:-0} * 10000 + ${MINOR:-0} * 100 + ${PATCH:-0} ))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Versión $NAME (versionCode $CODE)"
+
+      - name: Pruebas del motor de radar y alarmas
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Restaurar el almacén de claves
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ]; then
+            echo "::error::Falta el secreto ANDROID_KEYSTORE_BASE64. Sin él la app" \
+                 "se firmaría con otra clave y las actualizaciones exigirían desinstalar."
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/plou-release.jks"
+
+      - name: Compilar APK y AAB firmados
+        working-directory: android
+        env:
+          # La misma clave en cada release: así una actualización se instala
+          # encima de la anterior sin desinstalar nada.
+          PLOU_KEYSTORE_FILE: ${{ runner.temp }}/plou-release.jks
+          PLOU_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PLOU_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PLOU_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          PLOU_VERSION_NAME: ${{ steps.version.outputs.name }}
+          PLOU_VERSION_CODE: ${{ steps.version.outputs.code }}
+        run: ./gradlew assembleRelease bundleRelease --no-daemon
+
+      - name: Comprobar que va firmado con la clave esperada
+        working-directory: android
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          APK=app/build/outputs/apk/release/app-release.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          HUELLA=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK" \
+            | grep -m1 'SHA-256 digest' | awk '{print $NF}')
+          echo "Huella de firma: $HUELLA"
+          # Si algún día cambiara la clave, el APK dejaría de instalarse encima
+          # de la versión anterior: mejor fallar aquí que descubrirlo en el móvil.
+          if [ -n "${{ vars.ANDROID_SIGNING_SHA256 }}" ] \
+             && [ "$HUELLA" != "${{ vars.ANDROID_SIGNING_SHA256 }}" ]; then
+            echo "::error::La firma no coincide con la clave registrada del proyecto."
+            exit 1
+          fi
+
+      - name: Renombrar los artefactos
+        working-directory: android
+        run: |
+          V="${{ steps.version.outputs.name }}"
+          mv app/build/outputs/apk/release/app-release.apk "plou-$V.apk"
+          mv app/build/outputs/bundle/release/app-release.aab "plou-$V.aab"
+          sha256sum "plou-$V.apk" "plou-$V.aab" > "plou-$V.sha256"
+
+      - name: Guardar los artefactos de la ejecución
+        uses: actions/upload-artifact@v4
+        with:
+          name: plou-${{ steps.version.outputs.name }}
+          path: |
+            android/plou-*.apk
+            android/plou-*.aab
+            android/plou-*.sha256
+
+      - name: Adjuntar a la release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            android/plou-*.apk android/plou-*.aab android/plou-*.sha256 --clobber

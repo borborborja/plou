@@ -1,9 +1,31 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
 }
+
+/**
+ * Credenciales de firma. En local salen de un fichero fuera del repositorio
+ * (`~/.android-keystores/plou-release.properties`); en CI, de variables de
+ * entorno alimentadas por los secretos del repositorio. Si no hay ninguna, la
+ * compilación de release queda sin firmar en vez de fallar.
+ */
+val signingProps = Properties().apply {
+    val fromEnv = System.getenv("PLOU_KEYSTORE_FILE")
+    if (fromEnv != null) {
+        setProperty("storeFile", fromEnv)
+        setProperty("storePassword", System.getenv("PLOU_KEYSTORE_PASSWORD") ?: "")
+        setProperty("keyAlias", System.getenv("PLOU_KEY_ALIAS") ?: "plou")
+        setProperty("keyPassword", System.getenv("PLOU_KEY_PASSWORD") ?: "")
+    } else {
+        val local = File(System.getProperty("user.home"), ".android-keystores/plou-release.properties")
+        if (local.exists()) local.inputStream().use { load(it) }
+    }
+}
+val hasSigning = signingProps.getProperty("storeFile")?.let { File(it).exists() } == true
 
 android {
     namespace = "cat.plou"
@@ -13,14 +35,28 @@ android {
         applicationId = "cat.plou"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = (System.getenv("PLOU_VERSION_CODE") ?: "1").toInt()
+        versionName = System.getenv("PLOU_VERSION_NAME") ?: "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (hasSigning) {
+            create("release") {
+                storeFile = File(signingProps.getProperty("storeFile"))
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Misma clave en todas las versiones: así una actualización se
+            // instala encima sin tener que desinstalar la anterior.
+            if (hasSigning) signingConfig = signingConfigs.getByName("release")
         }
     }
 

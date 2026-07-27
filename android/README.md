@@ -59,6 +59,43 @@ app/src/test/  pruebas unitarias del motor
 | `FOREGROUND_SERVICE` + `..._SPECIAL_USE` | vigilar el radar de forma continua |
 | `VIBRATE`, `WAKE_LOCK` | que la alarma se note y despierte la pantalla |
 
+## Publicar una versión
+
+Las releases las compila GitHub Actions
+([`.github/workflows/android-release.yml`](../.github/workflows/android-release.yml)):
+al publicar una release, el workflow ejecuta las pruebas, compila el APK y el
+AAB **firmados con la clave del proyecto** y los adjunta a la release junto con
+sus `sha256`.
+
+```bash
+gh release create v1.1.0 --title "Plou 1.1.0" --notes "..."
+```
+
+El nombre de versión sale de la etiqueta (`v1.1.0` → `1.1.0`) y el `versionCode`
+de sus tres números (`1·10000 + 1·100 + 0` = `10100`), de modo que siempre crece.
+
+### La clave de firma
+
+Android exige que **todas las versiones vayan firmadas con la misma clave**: si
+cambia, la actualización no se instala encima y hay que desinstalar la anterior
+perdiendo los datos. Por eso:
+
+- La clave vive fuera del repositorio, en `~/.android-keystores/plou-release.jks`
+  (RSA 4096, válida hasta 2056), junto a sus credenciales en un fichero `600`.
+- En CI se restaura desde los secretos del repositorio
+  (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+  `ANDROID_KEY_PASSWORD`).
+- El workflow **comprueba la huella** del APK contra la variable
+  `ANDROID_SIGNING_SHA256` del repositorio y falla si no coincide, para que un
+  cambio accidental de clave se detecte antes de publicar y no en el móvil.
+
+> **Haz una copia de seguridad de `~/.android-keystores/`.** Si pierdes ese
+> fichero no podrás volver a publicar actualizaciones de esta app nunca más.
+
+En local, `./gradlew assembleRelease` firma automáticamente si existe
+`~/.android-keystores/plou-release.properties`; si no existe, compila sin firmar
+en vez de fallar.
+
 ## Estado
 
 Compila y las 44 pruebas del motor pasan. **No se ha ejecutado todavía en un
