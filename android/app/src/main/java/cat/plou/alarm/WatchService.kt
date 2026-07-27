@@ -162,7 +162,14 @@ class WatchService : Service() {
         val timezone = TimeZone.getDefault().id
         var fired = 0
 
-        for (location in locations) {
+        for (base in locations) {
+            // La alarma de «mi posición» se recoloca antes de analizarla.
+            val location = if (base.followDevice) {
+                val punto = cat.plou.ui.deviceLocation(applicationContext)
+                if (punto == null) continue else base.copy(lat = punto.latitude, lon = punto.longitude)
+            } else {
+                base
+            }
             val config = location.alarm.toConfig()
             val analysis = runCatching {
                 analyzeLocation(

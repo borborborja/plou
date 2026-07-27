@@ -12,6 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -60,8 +63,8 @@ fun PlouApp(store: PlouStore, settings: Settings) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             when (tab) {
-                Tab.RADAR -> RadarScreen(store, settings, active)
-                Tab.FORECAST -> ForecastScreen(active, settings)
+                Tab.RADAR -> RadarScreen(store, settings, active, locations) { point = it }
+                Tab.FORECAST -> ForecastScreen(active, settings, locations) { point = it }
                 Tab.ALARMS -> AlarmsScreen(store, locations) { point = it }
                 Tab.SETTINGS -> SettingsScreen(store, settings)
             }
@@ -157,5 +160,79 @@ fun EmptyHint(text: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+
+/**
+ * Botón que despliega las ubicaciones guardadas y, en el radar, permite vigilar
+ * el punto que se está mirando. Es el equivalente del que hay en la versión web.
+ */
+@Composable
+fun LocationMenu(
+    locations: List<WatchedLocation>,
+    active: WatchedLocation?,
+    onSelect: (WatchedLocation) -> Unit,
+    onWatchHere: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(100.dp))
+                .background(BrandGradient)
+                .clickable { open = true }
+                .padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                painterResource(R.drawable.ic_tab_radar),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                active?.name ?: "Elegir ubicación",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 6.dp),
+            )
+        }
+
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text(
+                "MIS UBICACIONES",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp),
+            )
+            if (locations.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("Todavía no hay ninguna", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    onClick = { open = false },
+                )
+            }
+            locations.forEach { location ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            location.name,
+                            fontWeight = if (location.id == active?.id) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    },
+                    onClick = { onSelect(location); open = false },
+                )
+            }
+            if (onWatchHere != null) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("＋ Vigilar este punto", fontWeight = FontWeight.Bold) },
+                    onClick = { onWatchHere(); open = false },
+                )
+            }
+        }
     }
 }
