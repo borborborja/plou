@@ -1,0 +1,6 @@
+Roboto — Copyright 2011 Google Inc. All Rights Reserved.
+Licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0).
+
+Los ficheros roboto-latin.woff2 y roboto-latin-ext.woff2 son subconjuntos de la
+fuente variable Roboto distribuida por Google Fonts, incorporados aquí para que
+la aplicación no dependa de un tercero en tiempo de ejecución.

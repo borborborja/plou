@@ -1,0 +1,20 @@
+services:
+  plou:
+    build: .
+    container_name: plou
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      # Contacto que se envía al servicio de push del navegador.
+      PLOU_VAPID_SUBJECT: ${PLOU_VAPID_SUBJECT:-mailto:admin@localhost}
+      PLOU_ALARM_TICK: ${PLOU_ALARM_TICK:-120}
+      # Credenciales de Foreca (opcionales; sin ellas se usa Open-Meteo).
+      PLOU_FORECA_MODE: ${PLOU_FORECA_MODE:-direct}
+      PLOU_FORECA_USER: ${PLOU_FORECA_USER:-}
+      PLOU_FORECA_PASSWORD: ${PLOU_FORECA_PASSWORD:-}
+      PLOU_FORECA_RAPIDAPI_KEY: ${PLOU_FORECA_RAPIDAPI_KEY:-}
+    volumes:
+      # Base de datos y claves push. Las claves se generan solas al arrancar
+      # si se ejecuta `docker compose exec plou node scripts/generate-vapid.mjs`.
+      - /opt/dades/plou:/app/server/data

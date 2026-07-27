@@ -1,0 +1,2129 @@
+/* Plou — hoja de estilos única.
+   Sistema de diseño: Material 3 con luces de atardecer (azul → naranja → rosa).
+   Un único degradado de marca marca el elemento activo o primario de cada vista;
+   el resto son superficies neutras que dependen del tema. */
+
+/* Roboto variable, servida desde la propia app para que la PWA siga
+   funcionando sin conexión y sin depender de un tercero. */
+@font-face {
+  font-family: 'Roboto';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/roboto-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308,
+    U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113,
+    U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Roboto';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/roboto-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304,
+    U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* --- Marca ------------------------------------------------------------ */
+  --brand: linear-gradient(135deg, #6ea8ff 0%, #ff9d4d 55%, #ff6fa0 100%);
+  --brand-blue: #6ea8ff;
+  --brand-orange: #ff9d4d;
+  --brand-pink: #ff6fa0;
+  --brand-glow: 0 6px 18px rgba(255, 140, 90, 0.3);
+  --brand-soft: linear-gradient(140deg, rgba(110, 168, 255, 0.12), rgba(255, 111, 160, 0.1));
+
+  /* --- Tokens del tema claro -------------------------------------------- */
+  --ink: #14151a;
+  --ink-soft: rgba(20, 22, 30, 0.55);
+  --ink-faint: rgba(20, 22, 30, 0.42);
+  --page-bg: linear-gradient(135deg, #eef3ff 0%, #fdf3ee 55%, #fdeef4 100%);
+  --sidebar-bg: rgba(255, 255, 255, 0.7);
+  --card-bg: #ffffff;
+  --card-border: rgba(20, 22, 30, 0.07);
+  --card-shadow: 0 6px 20px rgba(30, 30, 50, 0.06);
+  --ghost-bg: rgba(20, 22, 30, 0.06);
+  --ghost-text: #14151a;
+  --tag-bg: rgba(20, 22, 30, 0.06);
+  --tag-text: #3a3d46;
+  --seg-bg: rgba(20, 22, 30, 0.05);
+  --seg-text: rgba(20, 22, 30, 0.55);
+  --input-bg: rgba(20, 22, 30, 0.05);
+  --input-border: rgba(20, 22, 30, 0.1);
+  --divider: rgba(20, 22, 30, 0.08);
+  --divider-soft: rgba(20, 22, 30, 0.06);
+  --track-off: rgba(20, 22, 30, 0.12);
+  --range-track: rgba(20, 22, 30, 0.12);
+  --nav-idle: rgba(20, 22, 30, 0.55);
+  --kicker: #e0793a;
+
+  /* --- Nombres heredados, ligados a los tokens del sistema --------------- */
+  --bg: var(--page-bg);
+  --bg-elevated: var(--card-bg);
+  --bg-sunken: var(--ghost-bg);
+  --text: var(--ink);
+  --text-muted: var(--ink-soft);
+  --border: var(--card-border);
+  --accent: #3b6fd6;
+  --accent-soft: rgba(110, 168, 255, 0.16);
+  --danger: #d6598a;
+  --warning: #e0793a;
+  --shadow: var(--card-shadow);
+
+  --icon-sun: #ff9d4d;
+  --icon-moon: #b9c4dd;
+  --icon-cloud: #c3cede;
+  --icon-cloud-dark: #93a1b8;
+  --icon-rain: #6ea8ff;
+  --icon-rain-soft: #a8c9ff;
+  --icon-snow: #bfe0ff;
+  --icon-hail: #b6b8ff;
+  --icon-bolt: #ff9d4d;
+
+  --marker-on: #6ea8ff;
+  --marker-off: #9aa2b4;
+  --marker-stroke: #ffffff;
+  --marker-point: #ff6fa0;
+
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+}
+
+:root[data-theme='dark'] {
+  --ink: #f5f6fa;
+  --ink-soft: rgba(245, 246, 250, 0.62);
+  --ink-faint: rgba(245, 246, 250, 0.45);
+  --page-bg: radial-gradient(circle at 20% 10%, #141826 0%, #05060a 55%);
+  --sidebar-bg: rgba(18, 18, 26, 0.7);
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.09);
+  --card-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  --ghost-bg: rgba(255, 255, 255, 0.08);
+  --ghost-text: #ffffff;
+  --tag-bg: rgba(255, 255, 255, 0.08);
+  --tag-text: rgba(255, 255, 255, 0.8);
+  --seg-bg: rgba(255, 255, 255, 0.06);
+  --seg-text: rgba(255, 255, 255, 0.55);
+  --input-bg: rgba(255, 255, 255, 0.06);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --divider: rgba(255, 255, 255, 0.09);
+  --divider-soft: rgba(255, 255, 255, 0.07);
+  --track-off: rgba(255, 255, 255, 0.15);
+  --range-track: rgba(255, 255, 255, 0.16);
+  --nav-idle: rgba(245, 246, 250, 0.55);
+  --kicker: #ff9d4d;
+
+  --accent: #6ea8ff;
+  --accent-soft: rgba(110, 168, 255, 0.18);
+  --danger: #ff6fa0;
+  --warning: #ff9d4d;
+
+  --icon-cloud: #8592ab;
+  --icon-cloud-dark: #626e86;
+  --marker-stroke: #0b0d14;
+  --marker-point: #ff6fa0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--page-bg);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family:
+    'Roboto',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Helvetica Neue',
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+a {
+  color: var(--accent);
+}
+a:hover {
+  color: var(--warning);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+.small {
+  font-size: 0.82em;
+}
+.error {
+  color: var(--danger);
+}
+.pad {
+  padding: 16px;
+}
+.hint {
+  margin: 0 0 8px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* --- Estructura --------------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  background: transparent;
+}
+
+.appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(var(--safe-top) + 12px) 18px 12px;
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--divider-soft);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.appbar__title {
+  font-size: 1.2rem;
+  font-weight: 900;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.appbar__brand {
+  background: var(--brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.appbar__place {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appbar__action {
+  border: 0;
+  background: var(--ghost-bg);
+  color: var(--ghost-text);
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  font-size: 1.1rem;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 12px;
+}
+
+/* Switcher inferior en cápsula flotante, como pide el patrón móvil. */
+.tabbar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--card-border);
+  border-radius: 100px;
+  box-shadow: var(--card-shadow);
+  padding: 5px;
+  margin: 0 12px calc(var(--safe-bottom) + 10px);
+  position: sticky;
+  bottom: calc(var(--safe-bottom) + 10px);
+  z-index: 20;
+}
+
+.tabbar__tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border: 0;
+  border-radius: 100px;
+  background: none;
+  cursor: pointer;
+  color: var(--nav-idle);
+}
+
+.tabbar__tab svg {
+  flex: none;
+}
+.tabbar__tab em {
+  font-style: normal;
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+.tabbar__tab.is-active {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: var(--brand-glow);
+}
+.tabbar__tab.is-active em {
+  font-weight: 700;
+}
+
+.boot {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  color: var(--text-muted);
+}
+
+.boot__drop {
+  width: 34px;
+  height: 34px;
+  border-radius: 50% 50% 50% 0;
+  background: var(--accent);
+  transform: rotate(-45deg);
+  animation: drop 1.1s ease-in-out infinite;
+}
+
+@keyframes drop {
+  0%,
+  100% {
+    transform: rotate(-45deg) translateY(0);
+    opacity: 0.55;
+  }
+  50% {
+    transform: rotate(-45deg) translateY(-8px);
+    opacity: 1;
+  }
+}
+
+/* --- Tarjetas ----------------------------------------------------------- */
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  padding: 20px;
+  margin: 12px;
+  box-shadow: var(--card-shadow);
+}
+
+.card__title {
+  font-size: 1rem;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.card__header .card__title {
+  margin-bottom: 0;
+}
+
+/* --- Radar -------------------------------------------------------------- */
+
+.radar-tab {
+  display: flex;
+  flex-direction: column;
+}
+
+.radar-tab__map {
+  position: relative;
+  height: 46vh;
+  min-height: 260px;
+}
+
+.radar-tab__picking {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  z-index: 500;
+}
+
+.radar-tab__info {
+  padding-top: 10px;
+}
+
+.radar-map {
+  position: relative;
+  width: 100%;
+}
+
+.radar-map__canvas {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-sunken);
+}
+
+/* Todo lo que flota sobre el mapa comparte el mismo cristal oscuro. Al
+   redefinir los tokens aquí dentro, los controles anidados se adaptan solos. */
+.glass {
+  background: rgba(20, 20, 26, 0.55);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  --ink: #ffffff;
+  --ink-soft: rgba(255, 255, 255, 0.72);
+  --ink-faint: rgba(255, 255, 255, 0.55);
+  --text: #ffffff;
+  --text-muted: rgba(255, 255, 255, 0.72);
+  --ghost-bg: rgba(255, 255, 255, 0.14);
+  --ghost-text: #ffffff;
+  --seg-bg: rgba(255, 255, 255, 0.1);
+  --seg-text: rgba(255, 255, 255, 0.72);
+  --tag-bg: rgba(255, 255, 255, 0.14);
+  --tag-text: #ffffff;
+  --input-bg: rgba(255, 255, 255, 0.1);
+  --input-border: rgba(255, 255, 255, 0.18);
+  --divider: rgba(255, 255, 255, 0.16);
+  --divider-soft: rgba(255, 255, 255, 0.12);
+  --range-track: rgba(255, 255, 255, 0.28);
+  --card-bg: rgba(255, 255, 255, 0.08);
+  --card-border: rgba(255, 255, 255, 0.14);
+  --border: rgba(255, 255, 255, 0.14);
+}
+
+.radar-map__controls {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(20, 20, 26, 0.55);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  --text-muted: rgba(255, 255, 255, 0.6);
+  --range-track: rgba(255, 255, 255, 0.28);
+  border-radius: 100px;
+  padding: 8px 16px;
+}
+
+.radar-map__play {
+  border: 0;
+  background: var(--brand);
+  color: #fff;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radar-map__track {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.radar-map__scrub {
+  flex: 1;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* Separa los fotogramas observados de los extrapolados. */
+.radar-map__nowmark {
+  position: absolute;
+  top: 50%;
+  width: 2px;
+  height: 16px;
+  margin-top: -8px;
+  background: #fff;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.radar-map__time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.86rem;
+  font-weight: 900;
+  min-width: 62px;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.radar-map__time em {
+  font-style: normal;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+}
+.radar-map__time.is-nowcast strong,
+.radar-map__time.is-nowcast em {
+  color: var(--accent);
+}
+
+/* --- Buscador y avisos sobre el mapa ------------------------------------ */
+
+.radar-map__top {
+  position: absolute;
+  top: 10px;
+  left: 56px;
+  z-index: 600;
+  width: min(320px, calc(100% - 76px));
+}
+
+.mapsearch {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  background: rgba(20, 20, 26, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 100px;
+  padding: 4px 4px 4px 16px;
+  color: #fff;
+}
+
+.mapsearch__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 0.86rem;
+  color: #fff;
+  padding: 8px 0;
+}
+.mapsearch__input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.mapsearch__btn {
+  border: 0;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.mapsearch__btn:disabled {
+  opacity: 0.5;
+}
+
+.mapsearch__results {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 6px;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.mapsearch__results button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: none;
+  border: 0;
+  border-radius: 14px;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.84rem;
+}
+.mapsearch__results button:hover {
+  background: var(--bg-sunken);
+}
+.mapsearch__results em {
+  font-style: normal;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+.radar-map__notice {
+  margin: 6px 0 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  box-shadow: var(--shadow);
+}
+.radar-map__notice.is-error {
+  color: var(--danger);
+}
+
+/* Bajo la barra de búsqueda: en pantallas estrechas no caben en la misma fila. */
+.radar-map__badges {
+  position: absolute;
+  top: 52px;
+  right: 10px;
+  z-index: 600;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+}
+
+.badge {
+  background: rgba(20, 20, 26, 0.5);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.85);
+  border-radius: 100px;
+  padding: 6px 13px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge--accent {
+  background: var(--brand);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+.badge--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  color: var(--danger);
+}
+/* «Vigilar este punto» es la acción primaria de la vista de radar. */
+.badge--action {
+  background: var(--brand);
+  border-color: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 9px 16px;
+  box-shadow: var(--brand-glow);
+}
+.badge--action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.legend {
+  position: absolute;
+  left: 10px;
+  bottom: 58px;
+  z-index: 500;
+}
+
+/* --- Panel de capas sobre el mapa --------------------------------------- */
+
+.maptools {
+  position: absolute;
+  right: 10px;
+  bottom: 58px;
+  z-index: 550;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  /* Nunca debe sobresalir del mapa: en móvil el mapa es una franja baja. */
+  max-height: calc(100% - 68px);
+}
+
+.maptools.is-open .maptools__toggle {
+  background: var(--brand);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 700;
+}
+
+.maptools__panel {
+  border-radius: 24px;
+  box-shadow: 0 16px 40px rgba(10, 10, 20, 0.35);
+  padding: 16px;
+  width: min(320px, calc(100vw - 24px));
+  max-height: min(74vh, 580px);
+  overflow-y: auto;
+  /* Con `min-height: 0` el panel puede encoger dentro del alto disponible y
+     desplazarse por dentro, en vez de desbordar el mapa. */
+  min-height: 0;
+  flex: 0 1 auto;
+  order: -1;
+}
+
+.maptools__group {
+  margin: 0 0 8px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.maptools__group:not(:first-child) {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.maptools__row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+  font-size: 0.82rem;
+}
+.maptools__row > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.maptools__row em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.maptools__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.maptools__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.maptools__check input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.maptools__note {
+  margin: 12px 0 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.legend__toggle,
+.maptools__toggle {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(20, 20, 26, 0.5);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  border-radius: 100px;
+  padding: 7px 15px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.legend__panel {
+  margin-top: 6px;
+  border-radius: 22px;
+  padding: 14px;
+  width: min(280px, calc(100vw - 40px));
+}
+
+.legend__panel h4 {
+  font-size: 0.76rem;
+  margin-bottom: 8px;
+}
+
+.legend__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.legend__kind {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  width: 40px;
+  flex-shrink: 0;
+}
+
+.legend__scale {
+  display: flex;
+  flex: 1;
+  height: 12px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.legend__swatch {
+  flex: 1;
+}
+
+.legend__ticks {
+  position: relative;
+  height: 14px;
+  margin-left: 48px;
+  font-size: 0.62rem;
+  color: var(--text-muted);
+}
+
+.legend__ticks span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Por defecto la capa se dibuja con los colores exactos de la paleta, que es
+   lo que se ve sobre cualquier mapa base. En modo «integrado» se funde con el
+   mapa: multiplicando sobre fondos claros y aclarando sobre los oscuros, porque
+   `multiply` sobre un fondo oscuro dejaría los ecos casi negros. */
+.radar-map.is-blend .radar-tiles {
+  mix-blend-mode: multiply;
+}
+.radar-map.is-blend.is-darkbase .radar-tiles {
+  mix-blend-mode: screen;
+}
+.coverage-tiles {
+  filter: grayscale(1);
+}
+
+.point-marker span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--marker-point);
+  border: 2px solid var(--marker-stroke);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--marker-point) 25%, transparent);
+}
+
+.leaflet-container {
+  background: var(--ghost-bg);
+  font: inherit;
+}
+
+/* Los controles nativos de Leaflet siguen el mismo cristal que los propios. */
+.leaflet-bar,
+.leaflet-bar a {
+  border: 0 !important;
+  background: rgba(20, 20, 26, 0.5) !important;
+  backdrop-filter: blur(10px);
+  color: #fff !important;
+}
+.leaflet-bar {
+  border-radius: 100px !important;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(10, 10, 20, 0.25) !important;
+}
+.leaflet-bar a:first-child {
+  border-radius: 100px 100px 0 0 !important;
+}
+.leaflet-bar a:last-child {
+  border-radius: 0 0 100px 100px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+}
+.leaflet-bar a:hover {
+  background: rgba(40, 40, 50, 0.65) !important;
+}
+.leaflet-bar a.leaflet-disabled {
+  opacity: 0.45;
+}
+
+/* En pantallas con densidad fraccionaria (1,25× o 1,5×) el redondeo deja
+   costuras claras de un píxel entre teselas contiguas. Un contorno transparente
+   las cierra sin alterar el dibujo: medido, el salto de luminancia entre filas
+   baja de ~22 a ~9, que es el propio contenido del mapa. */
+.leaflet-tile {
+  outline: 1px solid transparent;
+}
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--bg-elevated) 80%, transparent) !important;
+  color: var(--text-muted) !important;
+  font-size: 9px !important;
+}
+.leaflet-control-attribution a {
+  color: var(--text-muted) !important;
+}
+
+/* --- Resumen del radar --------------------------------------------------- */
+
+.summary {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 24px;
+  padding: 18px;
+  margin: 0 12px 12px;
+  box-shadow: var(--card-shadow);
+  position: relative;
+  overflow: hidden;
+}
+/* El estado se marca con una banda de color, no con un borde duro. */
+.summary::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--marker-off);
+}
+.summary.is-raining {
+  background: var(--brand-soft);
+}
+.summary--loading {
+  color: var(--text-muted);
+}
+.summary__empty {
+  margin: 0;
+  font-size: 0.88rem;
+}
+.summary.is-raining::before {
+  background: linear-gradient(180deg, #6ea8ff, #ff6fa0);
+}
+.summary.is-near::before {
+  background: var(--brand-orange);
+}
+.summary.is-dry::before {
+  background: var(--brand-blue);
+}
+
+.summary__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.summary__state {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+.summary__place {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+.summary__age {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.summary__warning {
+  margin: 10px 0 0;
+  color: var(--warning);
+  font-size: 0.82rem;
+}
+
+.summary__facts {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.summary__facts li {
+  background: var(--tag-bg);
+  color: var(--tag-text);
+  border-radius: 100px;
+  padding: 6px 13px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.summary__facts li span {
+  color: var(--ink-faint);
+}
+.summary__facts li.is-highlight {
+  background: var(--brand-soft);
+}
+.summary__facts li.is-highlight span {
+  color: var(--kicker);
+  font-weight: 700;
+}
+
+.spark {
+  margin-top: 14px;
+}
+.spark__head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.spark__chart {
+  width: 100%;
+  height: 42px;
+  background: var(--ghost-bg);
+  border-radius: 14px;
+}
+.spark__bar {
+  fill: var(--border);
+}
+.spark__bar.is-rain {
+  fill: var(--icon-rain);
+}
+.spark__bar.is-snow {
+  fill: var(--icon-snow);
+}
+.spark__empty,
+.spark__peak {
+  margin: 6px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* --- Previsión ----------------------------------------------------------- */
+
+.current__main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.current__temp {
+  font-size: 3.2rem;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.current__desc {
+  font-size: 0.95rem;
+  margin-top: 4px;
+}
+.current__place {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.grid-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+.grid-facts div {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 18px;
+  padding: 12px 14px;
+  box-shadow: var(--card-shadow);
+}
+.grid-facts dt {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.grid-facts dd {
+  margin: 4px 0 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.minutely {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 80px;
+  background: var(--ghost-bg);
+  border-radius: 18px;
+  padding: 8px;
+}
+.minutely__col {
+  position: relative;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.minutely__prob {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 2px 2px 0 0;
+}
+.minutely__bar {
+  position: relative;
+  width: 100%;
+  background: var(--icon-rain);
+  border-radius: 2px 2px 0 0;
+  min-height: 0;
+}
+.minutely__bar.is-snow {
+  background: var(--icon-snow);
+}
+.minutely__legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.swatch--bar {
+  background: var(--icon-rain);
+}
+.swatch--prob {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  margin-left: 8px;
+}
+.minutely__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.66rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.hourly__group + .hourly__group {
+  margin-top: 12px;
+}
+.hourly__daylabel {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.hourly {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.hourly__row {
+  display: grid;
+  grid-template-columns: 46px 28px 44px 62px 74px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.hourly__row:last-child {
+  border-bottom: 0;
+}
+.hourly__time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.hourly__temp {
+  font-weight: 600;
+}
+.hourly__precip em,
+.hourly__wind em {
+  display: block;
+  font-style: normal;
+  font-size: 0.72em;
+  color: var(--text-muted);
+}
+.hourly__desc {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.daily__row {
+  border-bottom: 1px solid var(--border);
+}
+.daily__row:last-child {
+  border-bottom: 0;
+}
+.daily__head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px 52px 84px;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 9px 0;
+  cursor: pointer;
+  text-align: left;
+}
+.daily__day {
+  display: flex;
+  flex-direction: column;
+}
+.daily__day em {
+  font-style: normal;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.daily__precip {
+  font-size: 0.8rem;
+  color: var(--accent);
+  text-align: right;
+}
+.daily__temps {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.daily__temps em {
+  font-style: normal;
+  color: var(--text-muted);
+}
+.daily__detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.daily__detail div {
+  background: var(--ghost-bg);
+  border-radius: 14px;
+  padding: 8px 12px;
+}
+.daily__detail dt {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+.daily__detail dd {
+  margin: 2px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* --- Alarmas ------------------------------------------------------------- */
+
+.loclist {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 12px;
+}
+
+.alarms {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.alarms__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 0;
+}
+
+/* Etiqueta de sección del sistema de diseño. */
+.section-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.loccard {
+  border: 1px solid var(--card-border);
+  border-radius: 20px;
+  overflow: hidden;
+  background: var(--ghost-bg);
+}
+.loccard.is-off {
+  opacity: 0.72;
+}
+
+.loccard__main {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.loccard__main h3 {
+  font-size: 1rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.loccard__main p {
+  margin: 2px 0 0;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--tag-bg);
+  color: var(--tag-text);
+  border-radius: 100px;
+  padding: 5px 12px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+.dot.is-active {
+  background: var(--icon-rain);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--icon-rain) 22%, transparent);
+}
+
+.loccard__actions {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 10px;
+  flex-wrap: wrap;
+}
+
+.events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.events li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.events li:last-child {
+  border-bottom: 0;
+}
+.events p {
+  margin: 2px 0 0;
+}
+
+.search {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.results {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.results li button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  background: var(--ghost-bg);
+  border: 0;
+  border-radius: 16px;
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* --- Formularios --------------------------------------------------------- */
+
+.field {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.field:last-child {
+  border-bottom: 0;
+}
+.field--stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.field__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.88rem;
+}
+.field__help {
+  margin: 4px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 0;
+  flex: 1;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--range-track);
+  outline: none;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6ea8ff, #ff9d4d);
+  cursor: pointer;
+  box-shadow: 0 0 0 4px rgba(255, 157, 77, 0.2);
+}
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6ea8ff, #ff9d4d);
+  cursor: pointer;
+}
+.slider--inline {
+  max-width: 55%;
+}
+
+.toggle {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.toggle__track {
+  width: 46px;
+  height: 26px;
+  border-radius: 100px;
+  background: var(--track-off);
+  transition: background 0.15s ease;
+  display: flex;
+  align-items: center;
+  padding: 3px;
+}
+.toggle__knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s ease;
+}
+.toggle input:checked + .toggle__track {
+  background: linear-gradient(135deg, #6ea8ff, #ff6fa0);
+}
+.toggle input:checked + .toggle__track .toggle__knob {
+  transform: translateX(20px);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  border: 0;
+  background: var(--seg-bg);
+  color: var(--seg-text);
+  border-radius: 100px;
+  padding: 8px 15px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.chip.is-active {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+}
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.option {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: var(--ghost-bg);
+}
+.option.is-active {
+  border-color: color-mix(in srgb, var(--brand-blue) 45%, transparent);
+  background: var(--brand-soft);
+}
+.option input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.option em {
+  font-style: normal;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.times {
+  display: flex;
+  gap: 12px;
+  margin: 8px 0;
+}
+.times label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+.times input {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 6px 8px;
+}
+
+.weekdays {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.weekdays__day {
+  border: 0;
+  background: var(--seg-bg);
+  color: var(--seg-text);
+  border-radius: 100px;
+  padding: 7px 10px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+  min-width: 40px;
+}
+.weekdays__day.is-active {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+}
+
+.btn {
+  border: 0;
+  background: var(--ghost-bg);
+  color: var(--ghost-text);
+  border-radius: 100px;
+  padding: 11px 18px;
+  font-weight: 700;
+  font-size: 0.86rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn--small {
+  padding: 7px 14px;
+  font-size: 0.78rem;
+}
+.btn--wide {
+  width: 100%;
+}
+/* Acción principal de la vista: es la única que lleva el degradado. */
+.btn--primary {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: var(--brand-glow);
+}
+.btn--danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.btn--ghost {
+  background: transparent;
+}
+
+.row-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.link {
+  background: none;
+  border: 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px;
+}
+.link.is-primary {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.sources {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+/* --- Hoja de configuración ---------------------------------------------- */
+
+.sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.sheet__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.sheet__header h2 {
+  font-size: 0.92rem;
+  text-align: center;
+  flex: 1;
+}
+.sheet__body {
+  flex: 1;
+}
+
+/* --- Alarma en pantalla -------------------------------------------------- */
+
+/* El aviso no usa rojos genéricos: ocupa la pantalla con el atardecer. */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(160deg, #1a2a5c 0%, #7a3a8c 45%, #ff6f4d 80%, #ff9d4d 100%);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.overlay__card {
+  background: none;
+  border: 0;
+  padding: 0;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  position: relative;
+  color: #fff;
+}
+
+.overlay__pulse {
+  width: 90px;
+  height: 90px;
+  margin: 0 auto 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 0 40px rgba(255, 255, 255, 0.25);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 30px rgba(255, 255, 255, 0);
+  }
+}
+
+.overlay__place {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 100px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.overlay__clock {
+  font-weight: 900;
+  font-size: 3.4rem;
+  letter-spacing: -0.02em;
+  margin-top: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.overlay__pulse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.overlay__card h2 {
+  font-size: 1.85rem;
+  font-weight: 900;
+  line-height: 1.15;
+}
+.overlay__card p {
+  color: rgba(255, 255, 255, 0.85);
+  margin: 10px 0 0;
+  font-size: 0.95rem;
+}
+.overlay__actions .btn {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+/* Descartar es la acción principal: blanco sólido sobre el degradado. */
+.overlay__actions .btn--primary {
+  background: #fff;
+  color: #1a2a5c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+.overlay__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+@media (min-width: 720px) {
+  .app {
+    max-width: 860px;
+  }
+  .radar-tab__map {
+    height: 58vh;
+  }
+}
+
+/* --- Diseño de escritorio ------------------------------------------------
+   Barra lateral fija con la navegación y el contexto de la vista; el panel
+   principal es para el contenido, y en Radar el mapa lo ocupa entero. */
+
+.app--wide {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+  max-width: 1360px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 28px;
+  height: 100%;
+  overflow-y: auto;
+  background: transparent;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 24px 16px;
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--card-border);
+  border-radius: 28px;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 56px);
+  overflow-y: auto;
+}
+
+.sidebar__brand {
+  font-weight: 900;
+  font-size: 24px;
+  padding: 8px 12px 20px;
+  background: var(--brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  width: fit-content;
+}
+
+.navitem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--nav-idle);
+  font-weight: 600;
+  font-size: 14px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
+.navitem:hover {
+  background: var(--ghost-bg);
+}
+.navitem.is-active {
+  background: var(--brand);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(255, 140, 90, 0.3);
+}
+.navitem svg {
+  flex: none;
+}
+
+.sidebar__section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider);
+}
+
+.sidebar__label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0 12px 8px;
+}
+
+/* Control segmentado en cápsula: la opción activa lleva el degradado. */
+.seg {
+  display: flex;
+  background: var(--seg-bg);
+  border-radius: 100px;
+  padding: 3px;
+  gap: 4px;
+}
+.seg__opt {
+  flex: 1;
+  text-align: center;
+  padding: 7px 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--seg-text);
+  border: 0;
+  border-radius: 100px;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seg__opt.is-active {
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+}
+
+.sidebar__context {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Dentro de la barra lateral las tarjetas ya tienen el margen del contenedor. */
+.sidebar__context .card,
+.sidebar__context .summary {
+  margin: 0;
+  padding: 16px;
+  border-radius: 20px;
+}
+.sidebar__context .summary__head {
+  flex-direction: column;
+  gap: 2px;
+}
+.sidebar__context .summary__state {
+  font-size: 1rem;
+}
+.sidebar__context .summary__age {
+  order: -1;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--kicker);
+}
+.sidebar__context .summary__facts li {
+  font-size: 0.72rem;
+  padding: 5px 11px;
+}
+.sidebar__context .card__title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+.sidebar__context .nexthours li {
+  grid-template-columns: 44px 20px minmax(0, 1fr) auto;
+  font-size: 0.78rem;
+  padding: 4px 0;
+}
+
+.main {
+  min-width: 0;
+}
+
+/* El mapa manda: ocupa el panel entero, redondeado y a sangre. */
+.stage {
+  position: relative;
+  min-width: 0;
+  height: calc(100vh - 118px);
+  min-height: 560px;
+  border-radius: 28px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(20, 20, 40, 0.18);
+}
+
+/* Fuera de Radar el mapa sigue montado, sólo deja de ocupar sitio. */
+.stage.is-hidden {
+  display: none;
+}
+
+/* Previsión, alarmas y ajustes se reparten en columnas: las tarjetas que ya
+   renderizan los paneles pasan a ser celdas de la rejilla. */
+.app--wide .alarms {
+  gap: 20px;
+}
+.app--wide .alarms__head {
+  padding: 0;
+}
+.app--wide .loclist {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin: 0;
+  align-items: start;
+}
+
+.app--wide .forecast {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.app--wide .forecast > * {
+  margin: 0;
+  min-width: 0;
+}
+
+/* Ajustes en columnas de texto en vez de rejilla: las tarjetas tienen alturas
+   muy distintas y una rejilla dejaría el hueco de la más alta en toda la fila. */
+.app--wide .settings {
+  columns: 3 320px;
+  column-gap: 20px;
+}
+.app--wide .settings > * {
+  margin: 0 0 20px;
+  break-inside: avoid;
+}
+/* Las listas largas se leen mejor a todo el ancho. */
+.app--wide .forecast > .hourly-card,
+.app--wide .forecast > .daily-card {
+  grid-column: 1 / -1;
+}
+.app--wide .alarms > .card {
+  margin: 0;
+}
+
+/* El editor de alarma se comporta como un diálogo centrado. */
+.app--wide .sheet {
+  max-width: 620px;
+  margin: 0 auto;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 28px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+.app--wide .sheet__header {
+  border-radius: 28px 28px 0 0;
+}
+
+.app--wide .hint {
+  margin-top: 12px;
+}
+
+/* El mapa a pantalla completa admite controles algo mayores. */
+.app--wide .radar-map__controls {
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  padding: 8px 14px;
+}
+.app--wide .radar-map__top {
+  top: 16px;
+  left: 62px;
+}
+.app--wide .radar-map__badges {
+  top: 16px;
+  right: 16px;
+}
+.app--wide .legend {
+  left: 16px;
+  bottom: 68px;
+}
+.app--wide .maptools {
+  right: 16px;
+  bottom: 68px;
+}
+
+/* --- Próximas horas junto al radar -------------------------------------- */
+
+.nexthours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.nexthours li {
+  display: grid;
+  grid-template-columns: 52px 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.84rem;
+}
+.nexthours li:last-child {
+  border-bottom: 0;
+}
+.nexthours__time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.nexthours em {
+  font-style: normal;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.nexthours em.is-wet {
+  color: var(--icon-rain);
+  font-weight: 600;
+}
+
+/* El mapa a pantalla completa admite controles algo mayores. */
+.app--wide .radar-map__controls {
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  padding: 8px 14px;
+}
+.app--wide .radar-map__top {
+  top: 16px;
+  left: 62px;
+}
+.app--wide .radar-map__badges {
+  top: 16px;
+  right: 16px;
+}
+.app--wide .legend {
+  left: 16px;
+  bottom: 68px;
+}
+.app--wide .maptools {
+  right: 16px;
+  bottom: 68px;
+}
