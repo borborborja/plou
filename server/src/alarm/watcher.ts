@@ -68,30 +68,21 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
       },
     });
 
-    saveAlarmState(db, outcome.state);
-
     if (outcome.action !== 'fire') {
+      saveAlarmState(db, outcome.state);
       return outcome.action === 'suppress' ? 'suppressed' : 'none';
     }
 
     const { notification } = outcome;
-    recordEvent(db, {
-      location_id: location.id,
-      device_id: location.deviceId,
-      fired_at: now,
-      kind: notification.kind,
-      title: notification.title,
-      body: notification.body,
-      payload_json: JSON.stringify({
-        ...notification.payload,
-        locationId: location.id,
-        locationName: location.name,
-        lat: location.lat,
-        lon: location.lon,
-      }),
-    });
+    const payload = {
+      ...notification.payload,
+      locationId: location.id,
+      locationName: location.name,
+      lat: location.lat,
+      lon: location.lon,
+    };
 
-    await sendToDevice(db, location.deviceId, {
+    const delivery = await sendToDevice(db, location.deviceId, {
       title: notification.title,
       body: notification.body,
       // Un tag por ubicación: los avisos sucesivos se reemplazan en la bandeja.
@@ -99,15 +90,34 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
       requireInteraction: location.alarm.sound.loop,
       vibrate: location.alarm.sound.vibrate ? [300, 150, 300, 150, 600] : undefined,
       data: {
-        ...notification.payload,
+        ...payload,
         deviceId: location.deviceId,
-        locationId: location.id,
-        locationName: location.name,
-        lat: location.lat,
-        lon: location.lon,
         sound: location.alarm.sound,
         snoozeMinutes: location.alarm.snoozeMinutes,
       },
+    });
+
+    // Si había suscripciones y ninguna aceptó el aviso, no se da por emitido.
+    // Marcarlo bloquearía el reintento por el intervalo mínimo y el episodio
+    // entero se quedaría sin avisar por un fallo puntual de la red.
+    if (delivery.sent === 0 && delivery.failed > 0) {
+      saveAlarmState(db, {
+        ...state,
+        last_checked_at: now,
+        last_error: `no se pudo entregar el aviso (${delivery.failed} fallidos)`,
+      });
+      return 'error';
+    }
+
+    saveAlarmState(db, outcome.state);
+    recordEvent(db, {
+      location_id: location.id,
+      device_id: location.deviceId,
+      fired_at: now,
+      kind: notification.kind,
+      title: notification.title,
+      body: notification.body,
+      payload_json: JSON.stringify(payload),
     });
 
     return 'fired';
