@@ -161,6 +161,18 @@ las regeneras, todas las suscripciones existentes dejan de ser válidas.
 
 ### Docker
 
+Cada release publica una imagen en GitHub Container Registry, construida y
+probada por [un workflow](.github/workflows/docker.yml) que la levanta y
+comprueba que responde antes de subirla:
+
+```bash
+docker run -d --name plou -p 8787:8787 \
+  -v /opt/dades/plou:/app/server/data \
+  ghcr.io/borborborja/plou:latest
+```
+
+O construyéndola tú desde el repositorio:
+
 ```bash
 docker compose up -d
 ```
