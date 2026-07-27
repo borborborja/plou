@@ -210,6 +210,54 @@ describe('evaluateAlarm', () => {
     expect(outcome.state.active).toBe(1);
   });
 
+  it('avisa al terminar el silencio si el episodio sigue vivo', () => {
+    // Un episodio que empieza de madrugada queda activo sin haber avisado a
+    // nadie. Si eso contara como avisado, al levantarse el silencio no se diría
+    // nunca, por mucho que siguiera lloviendo encima.
+    const cfg = config({ quietHours: { enabled: true, from: '13:00', to: '15:00', days: [] } });
+    const dentro = evaluateAlarm(
+      input({ config: cfg, analysis: analysis({ overhead: hit() }) }),
+    );
+    expect(dentro.action).toBe('suppress');
+
+    // Misma situación, ya fuera de la franja.
+    const fuera = evaluateAlarm(
+      input({
+        config: config({ quietHours: { enabled: true, from: '02:00', to: '04:00', days: [] } }),
+        analysis: analysis({ overhead: hit() }),
+        state: dentro.state,
+      }),
+    );
+    expect(fuera.action).toBe('fire');
+  });
+
+  it('no repite el aviso de una situación que sí se anunció', () => {
+    // El caso de siempre: con `repeat` desactivado, un aviso por episodio.
+    const primero = evaluateAlarm(input({ analysis: analysis({ overhead: hit() }) }));
+    expect(primero.action).toBe('fire');
+
+    const segundo = evaluateAlarm(
+      input({ analysis: analysis({ overhead: hit() }), state: primero.state }),
+    );
+    expect(segundo.action).toBe('none');
+    expect(segundo.reason).toContain('ya emitido');
+  });
+
+  it('un aviso anterior al último cierre no cuenta para la situación nueva', () => {
+    // Avisó a las 10:00, escampó a las 12:00; lo de ahora es otro episodio.
+    const outcome = evaluateAlarm(
+      input({
+        analysis: analysis({ overhead: hit() }),
+        state: state({
+          active: 1,
+          last_fired_at: NOW - 4 * 60 * 60_000,
+          last_cleared_at: NOW - 2 * 60 * 60_000,
+        }),
+      }),
+    );
+    expect(outcome.action).toBe('fire');
+  });
+
   it('no evalúa fuera de la franja de vigilancia', () => {
     const cfg = config({ schedule: { enabled: true, from: '07:00', to: '09:00', days: [] } });
     const outcome = evaluateAlarm(input({ config: cfg, analysis: analysis({ overhead: hit() }) }));

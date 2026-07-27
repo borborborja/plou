@@ -482,7 +482,7 @@ private fun RadarMap(
             overlays.forEachIndexed { i, overlay ->
                 // Una capa deshabilitada no dibuja ni pide teselas: así la carga
                 // se reparte en el tiempo en vez de pedirlo todo a la vez.
-                overlay.isEnabled = i <= loadedFrames || i == frameIndex
+                overlay.isEnabled = i < loadedFrames || i == frameIndex
                 overlay.setColorFilter(if (i == frameIndex) visibleFilter else hiddenFilter)
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }

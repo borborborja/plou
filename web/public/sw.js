@@ -1,6 +1,6 @@
 /* Service worker de Plou: avisos push y caché mínima del armazón de la app. */
 
-const CACHE = 'plou-shell-v2';
+const CACHE = 'plou-shell-v3';
 const SHELL = [
   '/',
   '/index.html',
@@ -135,6 +135,44 @@ self.addEventListener('notificationclick', (event) => {
       }
       return self.clients.openWindow(target);
     }),
+  );
+});
+
+/**
+ * El navegador puede invalidar o rotar la suscripción push por su cuenta. Si no
+ * se atiende este evento, los avisos se apagan en silencio y para siempre: la
+ * app sigue diciendo que están activados porque el permiso no ha cambiado.
+ */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const anterior = event.oldSubscription || (await self.registration.pushManager.getSubscription());
+      if (!anterior) return;
+
+      // Se reutiliza la clave del servidor de la suscripción anterior cuando
+      // está disponible; si no, se pide al servidor.
+      let clave = anterior.options && anterior.options.applicationServerKey;
+      if (!clave) {
+        const res = await fetch('/api/push/key').catch(() => null);
+        if (!res || !res.ok) return;
+        const datos = await res.json();
+        clave = datos.publicKey;
+      }
+      if (!clave) return;
+
+      const nueva = await self.registration.pushManager
+        .subscribe({ userVisibleOnly: true, applicationServerKey: clave })
+        .catch(() => null);
+      if (!nueva) return;
+
+      // La nueva se identifica por la anterior: aquí no hay cabecera de
+      // dispositivo que enviar.
+      await fetch('/api/push/resubscribe', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ oldEndpoint: anterior.endpoint, subscription: nueva.toJSON() }),
+      }).catch(() => undefined);
+    })(),
   );
 });
 

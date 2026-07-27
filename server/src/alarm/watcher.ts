@@ -34,6 +34,13 @@ export function lastTickReport(): WatchTickReport | null {
 }
 
 /** Evalúa una única ubicación y envía el aviso si procede. */
+/**
+ * Cobertura mínima de teselas para fiarse de un «no pasa nada». No se exige el
+ * 100 %: el borde de la rejilla queda lejos del punto vigilado y un fallo suelto
+ * ahí no cambia la conclusión.
+ */
+const MIN_DATA_COVERAGE = 0.95;
+
 export async function checkLocation(db: Db, location: Location): Promise<'fired' | 'suppressed' | 'none' | 'error'> {
   const settings = getSettings(db, location.deviceId);
   const state = getAlarmState(db, location.id);
@@ -68,30 +75,33 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
       },
     });
 
-    saveAlarmState(db, outcome.state);
-
     if (outcome.action !== 'fire') {
+      // Una tesela que no llega es indistinguible de una sin lluvia, así que un
+      // «no pasa nada» con datos incompletos no es una comprobación buena: puede
+      // ser una caída de red disfrazada de buen tiempo. Al revés no aplica —
+      // los datos que faltan pueden esconder lluvia, nunca inventarla—, por eso
+      // un aviso sí se emite aunque la cobertura sea parcial.
+      if (analysis.dataCoverage < MIN_DATA_COVERAGE) {
+        saveAlarmState(db, {
+          ...outcome.state,
+          last_error: `datos de radar incompletos (${Math.round(analysis.dataCoverage * 100)}%)`,
+        });
+        return 'error';
+      }
+      saveAlarmState(db, outcome.state);
       return outcome.action === 'suppress' ? 'suppressed' : 'none';
     }
 
     const { notification } = outcome;
-    recordEvent(db, {
-      location_id: location.id,
-      device_id: location.deviceId,
-      fired_at: now,
-      kind: notification.kind,
-      title: notification.title,
-      body: notification.body,
-      payload_json: JSON.stringify({
-        ...notification.payload,
-        locationId: location.id,
-        locationName: location.name,
-        lat: location.lat,
-        lon: location.lon,
-      }),
-    });
+    const payload = {
+      ...notification.payload,
+      locationId: location.id,
+      locationName: location.name,
+      lat: location.lat,
+      lon: location.lon,
+    };
 
-    await sendToDevice(db, location.deviceId, {
+    const delivery = await sendToDevice(db, location.deviceId, {
       title: notification.title,
       body: notification.body,
       // Un tag por ubicación: los avisos sucesivos se reemplazan en la bandeja.
@@ -99,15 +109,34 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
       requireInteraction: location.alarm.sound.loop,
       vibrate: location.alarm.sound.vibrate ? [300, 150, 300, 150, 600] : undefined,
       data: {
-        ...notification.payload,
+        ...payload,
         deviceId: location.deviceId,
-        locationId: location.id,
-        locationName: location.name,
-        lat: location.lat,
-        lon: location.lon,
         sound: location.alarm.sound,
         snoozeMinutes: location.alarm.snoozeMinutes,
       },
+    });
+
+    // Si había suscripciones y ninguna aceptó el aviso, no se da por emitido.
+    // Marcarlo bloquearía el reintento por el intervalo mínimo y el episodio
+    // entero se quedaría sin avisar por un fallo puntual de la red.
+    if (delivery.sent === 0 && delivery.failed > 0) {
+      saveAlarmState(db, {
+        ...state,
+        last_checked_at: now,
+        last_error: `no se pudo entregar el aviso (${delivery.failed} fallidos)`,
+      });
+      return 'error';
+    }
+
+    saveAlarmState(db, outcome.state);
+    recordEvent(db, {
+      location_id: location.id,
+      device_id: location.deviceId,
+      fired_at: now,
+      kind: notification.kind,
+      title: notification.title,
+      body: notification.body,
+      payload_json: JSON.stringify(payload),
     });
 
     return 'fired';

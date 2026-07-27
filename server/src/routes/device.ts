@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   deleteSubscription,
+  deviceForSubscription,
   getDb,
   getSettings,
   listSubscriptions,
@@ -54,6 +55,27 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     const body = z.object({ endpoint: z.string().url() }).safeParse(request.body);
     if (!body.success) return badRequest(reply, body.error);
     deleteSubscription(getDb(), body.data.endpoint);
+    return { ok: true };
+  });
+
+  /**
+   * El navegador puede rotar o invalidar una suscripción por su cuenta. Cuando
+   * ocurre, el service worker se vuelve a suscribir y avisa aquí: la nueva se
+   * identifica por la anterior, porque en ese contexto no hay cabeceras del
+   * dispositivo. Sin esto, los avisos se apagaban en silencio para siempre.
+   */
+  app.post('/api/push/resubscribe', async (request, reply) => {
+    const body = z
+      .object({ oldEndpoint: z.string().url(), subscription: pushSubscriptionSchema })
+      .safeParse(request.body);
+    if (!body.success) return badRequest(reply, body.error);
+
+    const db = getDb();
+    const deviceId = deviceForSubscription(db, body.data.oldEndpoint);
+    if (!deviceId) return reply.code(404).send({ error: 'suscripción desconocida' });
+
+    deleteSubscription(db, body.data.oldEndpoint);
+    saveSubscription(db, deviceId, body.data.subscription);
     return { ok: true };
   });
 
