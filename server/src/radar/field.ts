@@ -26,6 +26,12 @@ export interface PrecipField {
   kind: Uint8Array;
   /** Fracción de celdas con eco, útil para descartar rejillas vacías. */
   coverage: number;
+  /**
+   * Fracción de las teselas necesarias que llegaron a descargarse. Una tesela
+   * que falla no se distingue de una sin lluvia, así que sin este dato una
+   * caída de red parece buen tiempo.
+   */
+  dataCoverage: number;
 }
 
 export interface BuildFieldOptions {
@@ -76,6 +82,7 @@ export async function buildField(
     dbz: new Int16Array(width * height).fill(NO_ECHO),
     kind: new Uint8Array(width * height),
     coverage: 0,
+    dataCoverage: 1,
   };
 
   // Huella en píxeles de una celda: se muestrea un bloque para tomar el máximo.
@@ -164,6 +171,8 @@ export async function buildField(
   }
 
   field.coverage = echoes / field.dbz.length;
+  const llegadas = [...tiles.values()].filter((t) => t !== null).length;
+  field.dataCoverage = tiles.size === 0 ? 1 : llegadas / tiles.size;
   return field;
 }
 

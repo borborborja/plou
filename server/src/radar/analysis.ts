@@ -39,6 +39,8 @@ export interface LocationAnalysis {
   radarCoverage: boolean | null;
   /** Fracción de la rejilla analizada con eco, útil para diagnóstico. */
   fieldCoverage: number;
+  /** Fracción de teselas del radar que llegaron; < 1 significa análisis ciego a trozos. */
+  dataCoverage: number;
 
   /** Precipitación justo sobre el punto (o muy cerca). */
   overhead: EchoHit | null;
@@ -246,6 +248,7 @@ export async function analyzeLocation(
     thresholdDbz,
     radarCoverage,
     fieldCoverage: field.coverage,
+    dataCoverage: field.dataCoverage,
     overhead,
     nearest,
     strongest,

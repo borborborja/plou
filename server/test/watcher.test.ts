@@ -42,6 +42,7 @@ function lloviendo() {
     thresholdDbz: 20,
     radarCoverage: true,
     fieldCoverage: 0.2,
+    dataCoverage: 1,
     overhead: hit,
     nearest: hit,
     strongest: hit,
@@ -52,6 +53,20 @@ function lloviendo() {
     etaRadiusMinutes: 0,
     clearingMinutes: null,
     timeline: [],
+  };
+}
+
+/** El mismo análisis pero sin nada que avise: cielo despejado. */
+function despejado() {
+  return {
+    ...lloviendo(),
+    overhead: null,
+    nearest: null,
+    strongest: null,
+    cellsAboveThreshold: 0,
+    areaCoveragePct: 0,
+    etaMinutes: null,
+    etaRadiusMinutes: null,
   };
 }
 
@@ -130,5 +145,62 @@ describe('checkLocation: entrega del aviso', () => {
     const state = getAlarmState(db, location.id);
     expect(state.last_fired_at).toBeNull();
     expect(state.last_error).toContain('radar caído');
+  });
+});
+
+/**
+ * Una tesela que no llega es indistinguible de una sin lluvia. Sin vigilar eso,
+ * una caída de red se lee como buen tiempo y la comprobación queda registrada
+ * como correcta.
+ */
+describe('checkLocation: datos de radar incompletos', () => {
+  let db: Db;
+  let location: ReturnType<typeof createLocation>;
+
+  beforeEach(() => {
+    db = openDb(':memory:');
+    upsertDevice(db, 'disp');
+    location = createLocation(db, 'disp', {
+      name: 'Casa',
+      lat: center.lat,
+      lon: center.lon,
+      followDevice: false,
+      alarm: defaultAlarmConfig(),
+    });
+    sendToDevice.mockResolvedValue({ sent: 1, failed: 0, removed: 0 });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+    db.close();
+  });
+
+  it('un «no pasa nada» con teselas que faltan no cuenta como comprobación buena', async () => {
+    analyzeLocation.mockResolvedValue({ ...despejado(), dataCoverage: 0.7 });
+
+    expect(await checkLocation(db, location)).toBe('error');
+    expect(getAlarmState(db, location.id)?.last_error).toContain('incompletos');
+  });
+
+  it('con los datos completos, un «no pasa nada» es una comprobación buena', async () => {
+    analyzeLocation.mockResolvedValue({ ...despejado(), dataCoverage: 1 });
+
+    expect(await checkLocation(db, location)).toBe('none');
+    expect(getAlarmState(db, location.id)?.last_error).toBeFalsy();
+  });
+
+  it('un fallo suelto en el borde de la rejilla no invalida la comprobación', async () => {
+    analyzeLocation.mockResolvedValue({ ...despejado(), dataCoverage: 0.98 });
+
+    expect(await checkLocation(db, location)).toBe('none');
+  });
+
+  it('si hay lluvia, el aviso sale aunque falten teselas', async () => {
+    // Lo que falta puede esconder lluvia, nunca inventarla: callar un aviso
+    // porque el dato esté incompleto sería peor que emitirlo.
+    analyzeLocation.mockResolvedValue({ ...lloviendo(), dataCoverage: 0.4 });
+
+    expect(await checkLocation(db, location)).toBe('fired');
+    expect(listEvents(db, 'disp', 10)).toHaveLength(1);
   });
 });
