@@ -34,6 +34,13 @@ export function lastTickReport(): WatchTickReport | null {
 }
 
 /** Evalúa una única ubicación y envía el aviso si procede. */
+/**
+ * Cobertura mínima de teselas para fiarse de un «no pasa nada». No se exige el
+ * 100 %: el borde de la rejilla queda lejos del punto vigilado y un fallo suelto
+ * ahí no cambia la conclusión.
+ */
+const MIN_DATA_COVERAGE = 0.95;
+
 export async function checkLocation(db: Db, location: Location): Promise<'fired' | 'suppressed' | 'none' | 'error'> {
   const settings = getSettings(db, location.deviceId);
   const state = getAlarmState(db, location.id);
@@ -69,6 +76,18 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
     });
 
     if (outcome.action !== 'fire') {
+      // Una tesela que no llega es indistinguible de una sin lluvia, así que un
+      // «no pasa nada» con datos incompletos no es una comprobación buena: puede
+      // ser una caída de red disfrazada de buen tiempo. Al revés no aplica —
+      // los datos que faltan pueden esconder lluvia, nunca inventarla—, por eso
+      // un aviso sí se emite aunque la cobertura sea parcial.
+      if (analysis.dataCoverage < MIN_DATA_COVERAGE) {
+        saveAlarmState(db, {
+          ...outcome.state,
+          last_error: `datos de radar incompletos (${Math.round(analysis.dataCoverage * 100)}%)`,
+        });
+        return 'error';
+      }
       saveAlarmState(db, outcome.state);
       return outcome.action === 'suppress' ? 'suppressed' : 'none';
     }
