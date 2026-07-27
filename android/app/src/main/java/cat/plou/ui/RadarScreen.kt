@@ -105,7 +105,9 @@ private class RadarTileSource(
 ) : OnlineTileSourceBase(
     "radar-${path.substringAfterLast('/')}", 0, 7, options.size, ".png", arrayOf(""),
     "© RainViewer",
-    TileSourcePolicy(2, TileSourcePolicy.FLAG_NO_BULK or TileSourcePolicy.FLAG_NO_PREVENTIVE),
+    // Un solo hilo por fotograma: con trece capas, dos hilos cada una son
+    // veintiséis descargas compitiendo entre sí y con el mapa base.
+    TileSourcePolicy(1, TileSourcePolicy.FLAG_NO_BULK or TileSourcePolicy.FLAG_NO_PREVENTIVE),
 ) {
     override fun getTileURLString(pMapTileIndex: Long): String {
         val z = MapTileIndex.getZoom(pMapTileIndex)
@@ -167,7 +169,15 @@ fun RadarScreen(
     val client = remember { RadarIndexClient() }
     val scheme = remember(settings.colorScheme) { ColorScheme.byId(settings.colorScheme) }
     val tileOptions = remember(settings) {
-        TileOptions(color = settings.colorScheme, smooth = settings.smooth, snow = settings.showSnow)
+        TileOptions(
+            // 256 px para dibujar: cuatro veces menos datos que 512 y el mismo
+            // tamaño de tesela que el mapa base, así no hay desajustes. El
+            // análisis sigue usando 512, donde sí interesa la resolución.
+            size = 256,
+            color = settings.colorScheme,
+            smooth = settings.smooth,
+            snow = settings.showSnow,
+        )
     }
 
     // Índice de fotogramas: se pide al abrir y se refresca cada cinco minutos.
@@ -209,12 +219,23 @@ fun RadarScreen(
         all.filter { it.nowcast || it.time >= desde }.ifEmpty { all.takeLast(1) }
     }
 
-    // Animación. Antes de empezar se da un margen para que las capas hayan
-    // pedido sus teselas: si la animación arranca de inmediato, los primeros
-    // saltos se ven en blanco mientras llegan.
-    LaunchedEffect(playing, frames.size, settings.frameDurationMs) {
-        if (!playing || frames.size < 2) return@LaunchedEffect
-        delay(2500)
+    // Carga progresiva: al abrir sólo se pide el fotograma que se está viendo,
+    // y los demás se van sumando de uno en uno. Pedir las trece capas a la vez
+    // son varios megas de golpe y el mapa tarda en aparecer.
+    var loadedFrames by remember(frames.size) { mutableIntStateOf(if (frames.isEmpty()) 0 else 1) }
+    LaunchedEffect(frames.size) {
+        if (frames.isEmpty()) return@LaunchedEffect
+        loadedFrames = 1
+        while (loadedFrames < frames.size) {
+            delay(700)
+            loadedFrames++
+        }
+    }
+
+    // La animación no empieza hasta que están todos los fotogramas: así no se
+    // ven huecos en los primeros ciclos.
+    LaunchedEffect(playing, frames.size, loadedFrames, settings.frameDurationMs) {
+        if (!playing || frames.size < 2 || loadedFrames < frames.size) return@LaunchedEffect
         while (true) {
             delay(settings.frameDurationMs.toLong())
             frame = (frame + 1) % frames.size
@@ -228,6 +249,7 @@ fun RadarScreen(
             RadarMap(
                 index = index!!,
                 frameIndex = frame,
+                loadedFrames = loadedFrames,
                 options = tileOptions,
                 opacity = settings.opacity,
                 center = active?.let { GeoPoint(it.lat, it.lon) },
@@ -265,6 +287,15 @@ fun RadarScreen(
             modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
         )
 
+        // Estado del radar: cuántos fotogramas hay listos y si hay ecos. Sin
+        // esto, un radar en calma y una capa que no ha cargado se ven igual.
+        RadarStatus(
+            frames = frames.size,
+            loaded = loadedFrames,
+            analysis = analysis,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp),
+        )
+
         MapControls(
             modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
             onZoomIn = { mapRef?.controller?.zoomIn() },
@@ -299,6 +330,7 @@ fun RadarScreen(
 private fun RadarMap(
     index: RadarIndex,
     frameIndex: Int,
+    loadedFrames: Int,
     options: TileOptions,
     opacity: Float,
     center: GeoPoint?,
@@ -433,7 +465,9 @@ private fun RadarMap(
             // de la animación tendría que pedir sus teselas y el mapa
             // parpadearía en cada salto.
             overlays.forEachIndexed { i, overlay ->
-                overlay.isEnabled = true
+                // Una capa deshabilitada no dibuja ni pide teselas: así la carga
+                // se reparte en el tiempo en vez de pedirlo todo a la vez.
+                overlay.isEnabled = i <= loadedFrames || i == frameIndex
                 overlay.setColorFilter(if (i == frameIndex) visibleFilter else hiddenFilter)
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
@@ -785,4 +819,32 @@ private fun flecha(from: GeoPoint, motion: MotionVector, color: Int): Overlay = 
             )
         }
     }
+}
+
+
+/** Aviso corto sobre el estado de la capa de radar. */
+@Composable
+private fun RadarStatus(
+    frames: Int,
+    loaded: Int,
+    analysis: LocationAnalysis?,
+    modifier: Modifier = Modifier,
+) {
+    val texto = when {
+        frames == 0 -> "Cargando el radar…"
+        loaded < frames -> "Cargando fotogramas $loaded/$frames"
+        analysis == null -> null
+        analysis.overhead == null && analysis.nearest == null -> "Sin ecos de precipitación cerca"
+        else -> null
+    } ?: return
+
+    Text(
+        texto,
+        color = Color.White,
+        style = MaterialTheme.typography.labelSmall,
+        modifier = modifier
+            .clip(RoundedCornerShape(100.dp))
+            .background(Color(0xB314161E))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
