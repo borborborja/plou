@@ -249,6 +249,22 @@ temperaturas y a los días siguientes.
 
 ---
 
+## App para Android
+
+Además de la PWA, el repositorio incluye una **aplicación nativa de Android**
+(Kotlin + Compose) que funciona **sin el servidor**: descarga las teselas de
+radar directamente y hace el análisis y la decisión de alarma en el propio
+móvil, con un servicio en primer plano y aviso a pantalla completa sobre la
+pantalla de bloqueo.
+
+```bash
+cd android && ./gradlew assembleDebug
+```
+
+Los detalles están en [android/README.md](android/README.md).
+
+---
+
 ## Estructura del proyecto
 
 ```

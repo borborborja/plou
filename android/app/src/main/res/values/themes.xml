@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Plou" parent="android:Theme.Material.NoActionBar" />
+    <style name="Theme.Plou" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- La pantalla de aviso se dibuja sobre la pantalla de bloqueo. -->
+    <style name="Theme.Plou.Alarm" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 </resources>
