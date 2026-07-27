@@ -150,6 +150,10 @@ export const api = {
 
   events: (limit = 50) => request<AlarmEvent[]>(`/api/events?limit=${limit}`),
 
+  pushSubscriptions: () =>
+    request<{ endpoint: string; createdAt: number; lastOkAt: number | null; failures: number }[]>(
+      '/api/push/subscriptions',
+    ),
   subscribePush: (subscription: PushSubscriptionJSON) =>
     request<{ ok: boolean }>('/api/push/subscribe', {
       method: 'POST',
