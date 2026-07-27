@@ -90,6 +90,13 @@ class WatchService : Service() {
         }
     }
 
+    /**
+     * Cobertura mínima de teselas para fiarse de un «no pasa nada». No se exige
+     * el 100 %: el borde de la rejilla queda lejos del punto vigilado y un fallo
+     * suelto ahí no cambia la conclusión.
+     */
+    private val MIN_DATA_COVERAGE = 0.95
+
     private val job = SupervisorJob()
     // El análisis descarga teselas y las decodifica: es trabajo de E/S, y en el
     // grupo `Default` bloquearía hilos que hacen falta para otras cosas.
@@ -217,6 +224,7 @@ class WatchService : Service() {
         val tiles = AndroidTileSource(index = { index })
         val timezone = TimeZone.getDefault().id
         var fired = 0
+        var incompletas = 0
 
         for (base in locations) {
             // La alarma de «mi posición» se recoloca antes de analizarla.
@@ -242,6 +250,13 @@ class WatchService : Service() {
                 )
             }.getOrNull() ?: continue
 
+            // Una tesela que no llega es indistinguible de una sin lluvia. Si no
+            // hay nada que avisar y faltan datos, esto no es una comprobación
+            // buena: puede ser una caída de red disfrazada de buen tiempo. Al
+            // revés no aplica —lo que falta puede esconder lluvia, nunca
+            // inventarla—, así que un aviso sí sale con cobertura parcial.
+            val incompleto = analysis.dataCoverage < MIN_DATA_COVERAGE
+
             val outcome = evaluateAlarm(
                 EvaluateInput(
                     now = System.currentTimeMillis(),
@@ -252,6 +267,11 @@ class WatchService : Service() {
                     timezone = timezone,
                 ),
             )
+
+            if (incompleto && outcome.action != AlarmAction.FIRE) {
+                incompletas++
+                continue
+            }
 
             // Se guarda sobre `base`: si la ubicación sigue al aparato, sus
             // coordenadas son de este momento y no deben quedarse grabadas.
@@ -275,7 +295,12 @@ class WatchService : Service() {
         val when_ = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             .format(java.util.Date())
         startForegroundNotice(
-            if (fired > 0) "Aviso emitido a las $when_" else "Vigilando · última comprobación $when_",
+            when {
+                fired > 0 -> "Aviso emitido a las $when_"
+                // Se dice, en vez de aparentar una comprobación completa.
+                incompletas > 0 -> "Datos de radar incompletos · $when_"
+                else -> "Vigilando · última comprobación $when_"
+            },
         )
     }
 

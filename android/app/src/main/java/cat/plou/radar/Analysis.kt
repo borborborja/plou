@@ -38,6 +38,8 @@ data class LocationAnalysis(
     val thresholdDbz: Int,
     /** Fracción de la rejilla analizada con eco, útil para diagnóstico. */
     val fieldCoverage: Double,
+    /** Fracción de teselas que llegaron; < 1 significa análisis ciego a trozos. */
+    val dataCoverage: Double = 1.0,
     /** Precipitación justo sobre el punto (o muy cerca). */
     val overhead: EchoHit?,
     /** Eco más próximo dentro del radio vigilado que supera el umbral. */
@@ -240,6 +242,7 @@ suspend fun analyzeLocation(
         radiusKm = radiusKm,
         thresholdDbz = thresholdDbz,
         fieldCoverage = field.coverage,
+        dataCoverage = field.dataCoverage,
         overhead = overhead,
         nearest = nearest,
         strongest = strongest,

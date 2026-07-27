@@ -29,6 +29,12 @@ class PrecipField(
     val kind: ByteArray,
     /** Fracción de celdas con eco, útil para descartar rejillas vacías. */
     val coverage: Double,
+    /**
+     * Fracción de las teselas necesarias que llegaron a descargarse. Una tesela
+     * que falla no se distingue de una sin lluvia, así que sin este dato una
+     * caída de red parece buen tiempo.
+     */
+    val dataCoverage: Double = 1.0,
 )
 
 const val DEFAULT_CELL_KM = 1.5
@@ -146,6 +152,11 @@ suspend fun buildField(
         dbz = dbz,
         kind = kind,
         coverage = echoes.toDouble() / dbz.size,
+        dataCoverage = if (fetched.isEmpty()) {
+            1.0
+        } else {
+            fetched.values.count { it != null }.toDouble() / fetched.size
+        },
     )
 }
 
