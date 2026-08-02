@@ -1,5 +1,13 @@
 package cat.plou.ui
 
+import android.Manifest
+import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings as AndroidSettings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import cat.plou.alarm.AlarmTone
@@ -48,6 +57,7 @@ import cat.plou.alarm.playTone
 import cat.plou.data.AlarmConfigDto
 import cat.plou.data.FOLLOW_DEVICE_ID
 import cat.plou.data.PlouStore
+import cat.plou.data.ProviderSecrets
 import cat.plou.data.Settings
 import cat.plou.data.temperature
 import cat.plou.data.WatchedLocation
@@ -55,10 +65,15 @@ import cat.plou.forecast.Forecast
 import cat.plou.forecast.OpenMeteoClient
 import cat.plou.forecast.Place
 import cat.plou.forecast.weatherText
+import cat.plou.location.hasBackgroundLocationPermission
+import cat.plou.location.hasForegroundLocationPermission
+import cat.plou.map.ProviderClient
 import cat.plou.radar.ColorScheme
 import cat.plou.radar.Intensity
 import cat.plou.radar.LatLon
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Tarjeta del sistema de diseño. */
 @Composable
@@ -181,11 +196,33 @@ fun AlarmsScreen(
     onSelect: (WatchedLocation) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val client = remember { OpenMeteoClient() }
     var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<Place>>(emptyList()) }
     var editing by remember { mutableStateOf<WatchedLocation?>(null) }
     val events by store.events.collectAsState(initial = emptyList())
+
+    fun setFollowing(enabled: Boolean) {
+        val current = locations.firstOrNull { it.followDevice }
+        val location = current ?: WatchedLocation(
+            id = FOLLOW_DEVICE_ID,
+            name = "Mi posición",
+            lat = 0.0,
+            lon = 0.0,
+            followDevice = true,
+        )
+        scope.launch { store.upsert(location.copy(alarm = location.alarm.copy(enabled = enabled))) }
+    }
+
+    val askLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        if (grants.values.any { it }) setFollowing(true)
+    }
+    val askBackgroundLocation = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { }
 
     val target = editing
     if (target != null) {
@@ -219,15 +256,15 @@ fun AlarmsScreen(
                     modifier = Modifier.padding(vertical = 8.dp),
                 )
                 ToggleRow("Vigilar mi posición", siguiendo?.alarm?.enabled == true) { on ->
-                    scope.launch {
-                        val actual = siguiendo ?: WatchedLocation(
-                            id = FOLLOW_DEVICE_ID,
-                            name = "Mi posición",
-                            lat = 0.0,
-                            lon = 0.0,
-                            followDevice = true,
+                    if (!on || hasForegroundLocationPermission(context)) {
+                        setFollowing(on)
+                    } else {
+                        askLocation.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_COARSE_LOCATION,
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                            ),
                         )
-                        store.upsert(actual.copy(alarm = actual.alarm.copy(enabled = on)))
                     }
                 }
                 if (siguiendo != null) {
@@ -236,6 +273,36 @@ fun AlarmsScreen(
                             Text("Configurar esta alarma")
                         }
                     }
+                    siguiendo.state.lastError?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                if (siguiendo?.alarm?.enabled == true &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    !hasBackgroundLocationPermission(context)
+                ) {
+                    Text(
+                        "Para seguir tu posición tras cerrar la app o reiniciar el móvil, " +
+                            "permite la ubicación todo el tiempo.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
+                                askBackgroundLocation.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            } else {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(
+                                            AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.parse("package:${context.packageName}"),
+                                        ),
+                                    )
+                                }
+                            }
+                        },
+                    ) { Text("Permitir ubicación siempre") }
                 }
             }
         }
@@ -292,6 +359,9 @@ fun AlarmsScreen(
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                location.state.lastError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
                 Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onSelect(location) }) { Text("Ver en el radar") }
                     TextButton(onClick = { editing = location }) { Text("Editar") }
@@ -506,6 +576,11 @@ private fun <T> ChoiceRow(label: String, value: T, options: List<Pair<T, String>
 fun SettingsScreen(store: PlouStore, settings: Settings, topInset: Dp) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val secrets = remember { ProviderSecrets(context) }
+    val providerClient = remember { ProviderClient() }
+    var openWeatherKey by remember { mutableStateOf(secrets.getOpenWeatherKey()) }
+    var aemetKey by remember { mutableStateOf(secrets.getAemetKey()) }
+    var providerStatus by remember { mutableStateOf<String?>(null) }
 
     fun save(next: Settings) = scope.launch { store.saveSettings(next) }
 
@@ -526,6 +601,28 @@ fun SettingsScreen(store: PlouStore, settings: Settings, topInset: Dp) {
                 ToggleRow("Vigilar el radar", settings.watching) { on ->
                     save(settings.copy(watching = on))
                     if (on) WatchService.start(context) else WatchService.stop(context)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                    context.getSystemService(NotificationManager::class.java)
+                        ?.canUseFullScreenIntent() == false
+                ) {
+                    Text(
+                        "Android no permite todavía abrir la alarma sobre la pantalla bloqueada.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    TextButton(
+                        onClick = {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        AndroidSettings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ),
+                                )
+                            }
+                        },
+                    ) { Text("Permitir alarmas a pantalla completa") }
                 }
                 Text("Comprobar cada ${settings.checkIntervalMinutes} min", Modifier.padding(top = 10.dp))
                 Slider(
@@ -644,9 +741,68 @@ fun SettingsScreen(store: PlouStore, settings: Settings, topInset: Dp) {
 
         item {
             PlouCard {
+                SectionLabel("Capas meteorológicas")
+                Text(
+                    "EUMETSAT funciona sin clave. Para la previsión de nubes y los rayos, " +
+                        "introduce tus propias claves; se cifran con Android Keystore y no salen del dispositivo.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+                OutlinedTextField(
+                    value = openWeatherKey,
+                    onValueChange = { openWeatherKey = it },
+                    label = { Text("Clave OpenWeather") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = {
+                        secrets.setOpenWeatherKey(openWeatherKey)
+                        scope.launch {
+                            providerStatus = "Comprobando OpenWeather…"
+                            providerStatus = runCatching {
+                                withContext(Dispatchers.IO) { providerClient.testOpenWeather(openWeatherKey) }
+                                "OpenWeather configurado correctamente"
+                            }.getOrElse { "OpenWeather: ${it.message ?: "error de conexión"}" }
+                        }
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { Text("Guardar y probar OpenWeather") }
+
+                OutlinedTextField(
+                    value = aemetKey,
+                    onValueChange = { aemetKey = it },
+                    label = { Text("Clave AEMET OpenData") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                )
+                Button(
+                    onClick = {
+                        secrets.setAemetKey(aemetKey)
+                        scope.launch {
+                            providerStatus = "Comprobando AEMET…"
+                            providerStatus = runCatching {
+                                withContext(Dispatchers.IO) { providerClient.testAemet(aemetKey) }
+                                "AEMET configurado correctamente"
+                            }.getOrElse { "AEMET: ${it.message ?: "error de conexión"}" }
+                        }
+                    },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { Text("Guardar y probar AEMET") }
+                providerStatus?.let {
+                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
+                }
+            }
+        }
+
+        item {
+            PlouCard {
                 SectionLabel("Fuentes de datos")
                 Text(
-                    "Radar: RainViewer · Previsión y búsqueda: Open-Meteo · " +
+                    "Radar: RainViewer · Satélite: EUMETSAT · Nubes: OpenWeather · " +
+                        "Rayos: AEMET · Previsión y búsqueda: Open-Meteo · " +
                         "Mapa base: OpenStreetMap, CARTO y OpenTopoMap",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

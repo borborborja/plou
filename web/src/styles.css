@@ -840,6 +840,33 @@ h4 {
 .radar-map.is-blend.is-darkbase .radar-tiles {
   mix-blend-mode: screen;
 }
+
+/* El navegador interpola la opacidad entre los dos fotogramas residentes. La
+   capa siguiente ya está cargada cuando empieza el fundido, evitando el flash
+   transparente que producían los cambios bruscos de tesela. */
+.animated-weather-tiles {
+  transition: opacity 160ms linear;
+  will-change: opacity;
+}
+
+.clouds-tiles {
+  filter: saturate(0.25) contrast(1.08);
+}
+
+.lightning-tiles {
+  filter: drop-shadow(0 0 3px rgb(255 225 80 / 85%));
+}
+
+.maptools__layerchips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated-weather-tiles {
+    transition: none;
+  }
+}
 .coverage-tiles {
   filter: grayscale(1);
 }

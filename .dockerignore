@@ -1,0 +1,30 @@
+.git
+.github
+.idea
+.vscode
+
+node_modules
+**/node_modules
+**/dist
+**/build
+**/.gradle
+*.tsbuildinfo
+
+# Android y las capturas no forman parte de la imagen servidor/PWA.
+android
+docs
+
+# Datos locales, secretos y artefactos de firma nunca entran en el contexto.
+.env
+.env.*
+!.env.example
+server/data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.jks
+*.keystore
+*.properties
+
+npm-debug.log*

@@ -46,6 +46,8 @@ data class LocationAnalysis(
     val nearest: EchoHit?,
     /** Eco más intenso dentro del radio vigilado. */
     val strongest: EchoHit?,
+    /** Eco actual que la extrapolación prevé sobre el punto en [etaMinutes]. */
+    val arrival: EchoHit?,
     /** Nº de celdas del radio con precipitación por encima del umbral. */
     val cellsAboveThreshold: Int,
     /** Porcentaje del área vigilada cubierta por precipitación. */
@@ -176,6 +178,7 @@ suspend fun analyzeLocation(
     var etaMinutes: Int? = null
     var etaRadiusMinutes: Int? = null
     var clearingMinutes: Int? = null
+    var arrival: EchoHit? = null
     val step = 5
 
     if (motion != null && motion.speedKmh > 0.5) {
@@ -200,7 +203,13 @@ suspend fun analyzeLocation(
                 ),
             )
 
-            if (etaMinutes == null && allowed >= thresholdDbz) etaMinutes = t
+            if (etaMinutes == null && allowed >= thresholdDbz) {
+                etaMinutes = t
+                // Posición actual del eco que alcanzará el punto tras `t`.
+                // Puede estar fuera del radio y aun así debe disparar el modo
+                // de acercamiento con la antelación configurada.
+                arrival = hitFrom(center, backEast, backNorth, atPoint.dbz.toInt(), atPoint.kind)
+            }
             if (etaRadiusMinutes == null) {
                 val inRadius = field.maxInDisc(backEast, backNorth, radiusKm)
                 if (inRadius.dbz >= thresholdDbz &&
@@ -230,7 +239,10 @@ suspend fun analyzeLocation(
             )
             t += step
         }
-        if (allowed >= thresholdDbz) etaMinutes = 0
+        if (allowed >= thresholdDbz) {
+            etaMinutes = 0
+            arrival = hitFrom(center, 0.0, 0.0, probe.dbz.toInt(), probe.kind)
+        }
         if (nearest != null) etaRadiusMinutes = 0
     }
 
@@ -246,6 +258,7 @@ suspend fun analyzeLocation(
         overhead = overhead,
         nearest = nearest,
         strongest = strongest,
+        arrival = arrival,
         cellsAboveThreshold = cellsAbove,
         areaCoveragePct = if (cellsInRadius > 0) cellsAbove * 100.0 / cellsInRadius else 0.0,
         motion = motion,

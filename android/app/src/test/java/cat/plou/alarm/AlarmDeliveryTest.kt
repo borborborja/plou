@@ -1,6 +1,8 @@
 package cat.plou.alarm
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -9,6 +11,14 @@ import org.junit.Test
  * pitido genérico del sistema y creería que la alarma suena como la configuró.
  */
 class AlarmDeliveryTest {
+
+    @Test
+    fun `rechaza fotogramas de radar antiguos o futuros`() {
+        val now = 1_700_000_000_000L
+        assertTrue(radarFrameIsFresh(now / 1000 - 29 * 60, now))
+        assertFalse(radarFrameIsFresh(now / 1000 - 31 * 60, now))
+        assertFalse(radarFrameIsFresh(now / 1000 + 60, now))
+    }
 
     @Test
     fun `con la pantalla apagada se abre la pantalla de alarma`() {

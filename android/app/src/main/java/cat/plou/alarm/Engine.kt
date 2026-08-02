@@ -22,11 +22,11 @@ data class AlarmConfig(
     /** Antelación máxima con la que avisar de una llegada, en minutos. */
     val leadMinutes: Int = 30,
     /** Por debajo de esta velocidad no se avisa por acercamiento. */
-    val minSpeedKmh: Double = 5.0,
+    val minSpeedKmh: Double = 3.0,
     val repeat: Boolean = false,
     val repeatMinutes: Int = 30,
     /** Silencio mínimo entre avisos distintos. */
-    val minIntervalMinutes: Int = 60,
+    val minIntervalMinutes: Int = 45,
     val notifyOnClear: Boolean = false,
     val snoozeMinutes: Int = 30,
     val quietHours: TimeWindow = TimeWindow(),
@@ -104,7 +104,8 @@ private fun detectTrigger(config: AlarmConfig, analysis: LocationAnalysis): Trig
     if (motion.speedKmh < config.minSpeedKmh) return null
     val eta = analysis.etaMinutes ?: return null
     if (eta > config.leadMinutes) return null
-    val hit = analysis.nearest ?: analysis.strongest ?: return null
+    // El eco que va a llegar puede estar todavía fuera del radio vigilado.
+    val hit = analysis.arrival ?: analysis.nearest ?: analysis.strongest ?: return null
     return Trigger(AlarmKind.APPROACHING, hit, eta)
 }
 

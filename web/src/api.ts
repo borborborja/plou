@@ -1,10 +1,13 @@
-import { deviceId } from './lib/device';
+import { clearRegistrationToken, deviceId, registrationToken } from './lib/device';
 import type {
   AlarmConfig,
   AlarmEvent,
   GeocodeResult,
   Location,
   LocationAnalysis,
+  LightningActivity,
+  MapFrames,
+  MapLayerCapability,
   Meta,
   ProviderId,
   RadarFrames,
@@ -24,10 +27,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const invite = registrationToken();
   const res = await fetch(path, {
     ...init,
     headers: {
       'x-device-id': deviceId(),
+      ...(invite ? { 'x-plou-registration-token': invite } : {}),
       ...(init.body ? { 'content-type': 'application/json' } : {}),
       ...init.headers,
     },
@@ -48,8 +53,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   meta: () => request<Meta>('/api/meta'),
 
-  registerDevice: () =>
-    request<{ deviceId: string; settings: Settings }>('/api/device', { method: 'POST' }),
+  registerDevice: async () => {
+    const registered = await request<{ deviceId: string; settings: Settings }>('/api/device', {
+      method: 'POST',
+    });
+    clearRegistrationToken();
+    return registered;
+  },
 
   getSettings: () => request<Settings>('/api/settings'),
   saveSettings: (patch: Partial<Settings>) =>
@@ -119,6 +129,14 @@ export const api = {
     });
     return request<LocationAnalysis>(`/api/radar/analysis?${q}`);
   },
+
+  mapLayers: () => request<{ layers: MapLayerCapability[] }>('/api/map/layers'),
+  mapFrames: (layer: 'satellite' | 'clouds' | 'lightning', variant: string) =>
+    request<MapFrames>(`/api/map/frames?layer=${layer}&variant=${encodeURIComponent(variant)}`),
+  lightningActivity: (lat: number, lon: number, radiusKm: number) =>
+    request<LightningActivity>(
+      `/api/map/lightning/activity?lat=${lat}&lon=${lon}&radiusKm=${radiusKm}`,
+    ),
 
   forecast: (params: {
     lat: number;

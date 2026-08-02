@@ -9,6 +9,7 @@ import { LocationChips, RadarAside } from './components/RadarAside';
 import { RadarMap } from './components/RadarMap';
 import { SettingsPanel } from './components/SettingsPanel';
 import { unlockAudio } from './lib/audio';
+import { linkedLocationId } from './lib/runtime';
 import { useStore } from './store';
 import type { Settings } from './types';
 
@@ -44,7 +45,7 @@ function useMediaQuery(query: string): boolean {
 }
 
 export function App(): JSX.Element {
-  const { ready, error, strings, point, setPoint, locateMe, settings, updateSettings } = useStore();
+  const { ready, error, strings, locations, point, setPoint, locateMe, settings, updateSettings } = useStore();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [picking, setPicking] = useState(false);
   // A partir de este ancho caben la barra lateral y el panel principal a la vez.
@@ -59,8 +60,27 @@ export function App(): JSX.Element {
 
   // Sin punto elegido ni ubicaciones guardadas, se propone la posición actual.
   useEffect(() => {
-    if (ready && !point) void locateMe();
+    const hasLinkedLocation = new URLSearchParams(window.location.search).has('location');
+    if (ready && !point && !hasLinkedLocation) void locateMe();
   }, [ready, point, locateMe]);
+
+  // Una notificación abierta con la app cerrada incluye la ubicación que la
+  // originó. Se selecciona cuando ya se han cargado las ubicaciones y se limpia
+  // el parámetro para no volver a aplicarlo en futuras actualizaciones.
+  useEffect(() => {
+    if (!ready) return;
+    const url = new URL(window.location.href);
+    const id = linkedLocationId(url.search);
+    if (id === null) return;
+    const location = locations.find((candidate) => candidate.id === id);
+    url.searchParams.delete('location');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    if (location) {
+      setPoint({ lat: location.lat, lon: location.lon, name: location.name, locationId: location.id });
+    } else if (!point) {
+      void locateMe();
+    }
+  }, [ready, locations, point, locateMe, setPoint]);
 
   const pickPoint = async (lat: number, lon: number): Promise<void> => {
     setPicking(true);

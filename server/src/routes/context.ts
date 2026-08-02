@@ -1,5 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getDb, upsertDevice } from '../db.js';
+import { timingSafeEqual } from 'node:crypto';
+import { config } from '../config.js';
+import { countDevices, deviceExists, getDb, upsertDevice } from '../db.js';
 import { deviceIdSchema } from '../schema.js';
 
 /**
@@ -8,6 +10,15 @@ import { deviceIdSchema } from '../schema.js';
  * el dispositivo *es* la identidad, y sus datos viven sólo en este servidor.
  */
 export const DEVICE_HEADER = 'x-device-id';
+export const REGISTRATION_HEADER = 'x-plou-registration-token';
+
+export function validRegistrationToken(expected: string, provided: unknown): boolean {
+  if (!expected) return true;
+  if (typeof provided !== 'string') return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export function deviceIdFrom(request: FastifyRequest, reply: FastifyReply): string | null {
   const raw = request.headers[DEVICE_HEADER];
@@ -18,6 +29,18 @@ export function deviceIdFrom(request: FastifyRequest, reply: FastifyReply): stri
     return null;
   }
   const db = getDb();
+  if (!deviceExists(db, parsed.data)) {
+    const registration = request.headers[REGISTRATION_HEADER];
+    const token = Array.isArray(registration) ? registration[0] : registration;
+    if (!validRegistrationToken(config.security.registrationToken, token)) {
+      reply.code(403).send({ error: 'Se necesita una invitación válida para registrar el dispositivo' });
+      return null;
+    }
+    if (countDevices(db) >= config.security.maxDevices) {
+      reply.code(503).send({ error: 'La instancia ha alcanzado el límite de dispositivos' });
+      return null;
+    }
+  }
   const userAgent = request.headers['user-agent'];
   upsertDevice(db, parsed.data, Array.isArray(userAgent) ? userAgent[0] : userAgent);
   return parsed.data;

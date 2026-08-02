@@ -61,9 +61,10 @@ fun PlouApp(store: PlouStore, settings: Settings) {
     // La ubicación que sigue al dispositivo nace en 0,0 y sólo tiene posición
     // real después de la primera comprobación: no puede ser el punto por
     // defecto, o el mapa se abriría en mitad del Atlántico.
-    val active = point ?: locations.firstOrNull {
+    val active = point?.takeUnless { it.followDevice && it.lat == 0.0 && it.lon == 0.0 }
+        ?: locations.firstOrNull {
         !it.followDevice || it.lat != 0.0 || it.lon != 0.0
-    } ?: locations.firstOrNull()
+    }
 
     // El mapa ocupa toda la pantalla y pasa por debajo de la barra superior; el
     // resto de secciones empiezan justo debajo de ella. La altura de la barra se
@@ -204,8 +205,8 @@ fun LocationMenu(
     locations: List<WatchedLocation>,
     active: WatchedLocation?,
     onSelect: (WatchedLocation) -> Unit,
-    onWatchHere: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onWatchHere: (() -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     Box(modifier) {

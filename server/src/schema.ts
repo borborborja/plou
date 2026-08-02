@@ -112,6 +112,13 @@ export const unitsSchema = z.object({
 });
 
 export const mapSettingsSchema = z.object({
+  /** Capa meteorológica principal del mapa; los rayos son una superposición independiente. */
+  activeLayer: z.enum(['radar', 'satellite', 'clouds']).default('radar'),
+  satelliteVariant: z.enum(['geocolour', 'visible', 'infra']).default('geocolour'),
+  showLightning: z.boolean().default(false),
+  satelliteOpacity: z.number().min(0.1).max(1).default(0.9),
+  cloudOpacity: z.number().min(0.1).max(1).default(0.72),
+  lightningOpacity: z.number().min(0.1).max(1).default(0.9),
   /** Identificador del esquema de color del radar. */
   colorScheme: z.number().int().min(0).max(8).default(2),
   smooth: z.boolean().default(true),

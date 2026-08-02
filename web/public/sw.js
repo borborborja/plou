@@ -1,16 +1,24 @@
 /* Service worker de Plou: avisos push y caché mínima del armazón de la app. */
 
-const CACHE = 'plou-shell-v3';
+// En producción Vite sustituye estos marcadores por el hash del build y sus
+// bundles. En desarrollo siguen siendo valores válidos y no requieren ningún
+// paso especial.
+const BUILD_ID = '__PLOU_BUILD_ID__';
+const BUILD_ASSETS = /* __PLOU_BUILD_ASSETS__ */ [];
+const CACHE = `plou-shell-${BUILD_ID}`;
 const SHELL = [
   '/',
   '/index.html',
   '/manifest.webmanifest',
   '/icon.svg',
   '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png',
   // La tipografía va en la caché del armazón: sin ella la app se ve con la
   // fuente del sistema al abrirla sin conexión.
   '/fonts/roboto-latin.woff2',
   '/fonts/roboto-latin-ext.woff2',
+  ...BUILD_ASSETS,
 ];
 
 self.addEventListener('install', (event) => {
@@ -18,7 +26,6 @@ self.addEventListener('install', (event) => {
     caches
       .open(CACHE)
       .then((cache) => cache.addAll(SHELL))
-      .catch(() => undefined)
       .then(() => self.skipWaiting()),
   );
 });
@@ -27,7 +34,13 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith('plou-shell-') && key !== CACHE)
+            .map((key) => caches.delete(key)),
+        ),
+      )
       .then(() => self.clients.claim()),
   );
 });

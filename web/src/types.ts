@@ -77,6 +77,7 @@ export interface Location {
   alarm: AlarmConfig;
   createdAt: number;
   updatedAt: number;
+  positionUpdatedAt: number | null;
   state?: AlarmState;
 }
 
@@ -90,6 +91,12 @@ export interface Units {
 }
 
 export interface MapSettings {
+  activeLayer: 'radar' | 'satellite' | 'clouds';
+  satelliteVariant: 'geocolour' | 'visible' | 'infra';
+  showLightning: boolean;
+  satelliteOpacity: number;
+  cloudOpacity: number;
+  lightningOpacity: number;
   colorScheme: number;
   smooth: boolean;
   showSnow: boolean;
@@ -104,6 +111,43 @@ export interface MapSettings {
   showCoverage: boolean;
   showRadius: boolean;
   showMotionArrow: boolean;
+}
+
+export type MapLayerId = 'satellite' | 'clouds' | 'lightning';
+export type MapFrameKind = 'observed' | 'forecast' | 'aggregate';
+
+export interface MapFrame {
+  id: string;
+  time: number;
+  validFrom: number;
+  validTo: number;
+  kind: MapFrameKind;
+  template: string;
+  attribution: string;
+}
+
+export interface MapLayerCapability {
+  id: MapLayerId;
+  configured: boolean;
+  coverage: 'global' | 'eumet-disc' | 'spain';
+  timeDomain: 'past' | 'forecast' | 'aggregate';
+  variants: string[];
+  attribution: string;
+  note?: string;
+}
+
+export interface MapFrames {
+  layer: MapLayerId;
+  variant: string;
+  generated: number;
+  frames: MapFrame[];
+}
+
+export interface LightningActivity {
+  active: boolean;
+  approximate: true;
+  periodHours: 12;
+  updatedAt: number;
 }
 
 export interface Settings {
@@ -154,9 +198,11 @@ export interface LocationAnalysis {
   thresholdDbz: number;
   radarCoverage: boolean | null;
   fieldCoverage: number;
+  dataCoverage: number;
   overhead: EchoHit | null;
   nearest: EchoHit | null;
   strongest: EchoHit | null;
+  arrival: EchoHit | null;
   cellsAboveThreshold: number;
   areaCoveragePct: number;
   motion: MotionVector | null;

@@ -1,5 +1,6 @@
 package cat.plou.alarm
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.KeyguardManager
 import android.app.Notification
@@ -9,18 +10,22 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import cat.plou.MainActivity
 import cat.plou.R
 import cat.plou.data.AlarmConfigDto
 import cat.plou.data.AlarmEvent
 import cat.plou.data.AlarmStateDto
 import cat.plou.data.PlouStore
+import cat.plou.location.currentDeviceLocation
+import cat.plou.location.hasForegroundLocationPermission
 import cat.plou.radar.AnalyzeOptions
 import cat.plou.radar.AndroidTileSource
 import cat.plou.radar.LatLon
@@ -52,14 +57,11 @@ class WatchService : Service() {
         const val ACTION_STOP = "cat.plou.STOP_WATCH"
         const val ACTION_CHECK = "cat.plou.CHECK_NOW"
         private const val NOTIFICATION_ID = 1
+        internal const val MAX_RADAR_AGE_MINUTES = 30
 
         fun start(context: Context) {
             val intent = Intent(context, WatchService::class.java).setAction(ACTION_START)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
@@ -68,7 +70,6 @@ class WatchService : Service() {
 
         /** Crea los canales de notificación; idempotente. */
         fun ensureChannels(context: Context) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(
@@ -104,6 +105,7 @@ class WatchService : Service() {
     private lateinit var store: PlouStore
     private val indexClient = RadarIndexClient()
     private var checking: Job? = null
+    private var locationForeground = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -133,7 +135,13 @@ class WatchService : Service() {
         super.onDestroy()
     }
 
-    private fun startForegroundNotice(text: String) {
+    /**
+     * Publica el estado permanente y, cuando hace falta seguir al dispositivo,
+     * añade el tipo de servicio `location`. La ampliación puede ser rechazada
+     * por Android si falta permiso; el llamador recibe `false` y no usa una
+     * posición antigua como sustituto silencioso.
+     */
+    private fun startForegroundNotice(text: String, requireLocation: Boolean = false): Boolean {
         val open = PendingIntent.getActivity(
             this,
             0,
@@ -148,11 +156,30 @@ class WatchService : Service() {
             .setContentIntent(open)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        val useLocation = locationForeground || requireLocation
+        val started = runCatching {
+            when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                    val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                        if (useLocation) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+                    startForeground(NOTIFICATION_ID, notification, types)
+                }
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        if (useLocation) {
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+                        } else {
+                            0 // API 29–33 permite arrancar sin un tipo concreto.
+                        },
+                    )
+                }
+                else -> startForeground(NOTIFICATION_ID, notification)
+            }
+        }.isSuccess
+        if (started && requireLocation) locationForeground = true
+        return started
     }
 
     /**
@@ -174,7 +201,17 @@ class WatchService : Service() {
                 runCatching { store.currentSettings() }.getOrNull()?.checkIntervalMinutes ?: 5
                 ).coerceIn(2, 60)
             try {
-                runCatching { checkAll() }
+                val failure = runCatching { checkAll() }.exceptionOrNull()
+                if (failure != null) {
+                    val detail = failure.message?.take(120) ?: "error desconocido"
+                    val message = "No se pudo comprobar: $detail"
+                    store.currentLocations()
+                        .filter { it.alarm.enabled }
+                        .forEach { base ->
+                            store.upsert(base.copy(state = base.state.copy(lastError = message)))
+                        }
+                    startForegroundNotice("No se ha podido comprobar el radar")
+                }
             } finally {
                 scheduleNextCheck(minutes)
                 if (wake?.isHeld == true) runCatching { wake.release() }
@@ -220,22 +257,51 @@ class WatchService : Service() {
             return
         }
 
+        val hasFollowing = locations.any { it.followDevice }
+        val canReadLocation = !hasFollowing ||
+            (hasForegroundLocationPermission(this) &&
+                startForegroundNotice("Vigilando el radar y la ubicación", requireLocation = true))
+
         val index: RadarIndex = indexClient.get()
+        val latest = index.latest ?: error("No hay fotogramas de radar disponibles")
+        if (!radarFrameIsFresh(latest.time, System.currentTimeMillis())) {
+            val message = "Radar demasiado antiguo; comprobación omitida"
+            locations.forEach { base ->
+                store.upsert(base.copy(state = base.state.copy(lastError = message)))
+            }
+            startForegroundNotice(message)
+            return
+        }
         val tiles = AndroidTileSource(index = { index })
         val timezone = TimeZone.getDefault().id
         var fired = 0
         var incompletas = 0
+        var errors = 0
 
         for (base in locations) {
             // La alarma de «mi posición» se recoloca antes de analizarla.
             val location = if (base.followDevice) {
-                val punto = cat.plou.ui.deviceLocation(applicationContext)
-                if (punto == null) continue else base.copy(lat = punto.latitude, lon = punto.longitude)
+                if (!canReadLocation) {
+                    errors++
+                    store.upsert(
+                        base.copy(state = base.state.copy(lastError = "Falta permiso de ubicación en segundo plano")),
+                    )
+                    continue
+                }
+                val point = currentDeviceLocation(applicationContext)
+                if (point == null) {
+                    errors++
+                    store.upsert(
+                        base.copy(state = base.state.copy(lastError = "No hay una posición reciente disponible")),
+                    )
+                    continue
+                }
+                base.copy(lat = point.latitude, lon = point.longitude)
             } else {
                 base
             }
             val config = location.alarm.toConfig()
-            val analysis = runCatching {
+            val analysisResult = runCatching {
                 analyzeLocation(
                     index = index,
                     center = LatLon(location.lat, location.lon),
@@ -248,7 +314,14 @@ class WatchService : Service() {
                     ),
                     tiles = tiles,
                 )
-            }.getOrNull() ?: continue
+            }
+            val analysis = analysisResult.getOrNull()
+            if (analysis == null) {
+                errors++
+                val detail = analysisResult.exceptionOrNull()?.message ?: "error desconocido"
+                store.upsert(base.copy(state = base.state.copy(lastError = "No se pudo analizar: $detail")))
+                continue
+            }
 
             // Una tesela que no llega es indistinguible de una sin lluvia. Si no
             // hay nada que avisar y faltan datos, esto no es una comprobación
@@ -270,6 +343,9 @@ class WatchService : Service() {
 
             if (incompleto && outcome.action != AlarmAction.FIRE) {
                 incompletas++
+                store.upsert(
+                    base.copy(state = base.state.copy(lastError = "Datos de radar incompletos")),
+                )
                 continue
             }
 
@@ -299,6 +375,7 @@ class WatchService : Service() {
                 fired > 0 -> "Aviso emitido a las $when_"
                 // Se dice, en vez de aparentar una comprobación completa.
                 incompletas > 0 -> "Datos de radar incompletos · $when_"
+                errors > 0 -> "$errors ubicación(es) sin comprobar · $when_"
                 else -> "Vigilando · última comprobación $when_"
             },
         )
@@ -346,15 +423,18 @@ class WatchService : Service() {
             .setContentIntent(fullPending)
             .setFullScreenIntent(fullPending, true)
 
-        runCatching {
+        val canPostNotification = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        val posted = canPostNotification && runCatching {
             NotificationManagerCompat.from(this)
                 .notify(1000 + locationId.toInt(), builder.build())
-        }
+        }.isSuccess
 
         val power = getSystemService(PowerManager::class.java)
         val keyguard = getSystemService(KeyguardManager::class.java)
         val entrega = alarmDelivery(
-            canFullScreen = canUseFullScreen(),
+            canFullScreen = posted && canUseFullScreen(),
             interactive = power?.isInteractive ?: true,
             locked = keyguard?.isKeyguardLocked ?: false,
         )
@@ -374,6 +454,16 @@ class WatchService : Service() {
             }
         }
     }
+}
+
+/** `timeSeconds` procede del índice de RainViewer y está expresado en epoch s. */
+internal fun radarFrameIsFresh(
+    timeSeconds: Long,
+    nowMillis: Long,
+    maxAgeMinutes: Int = WatchService.MAX_RADAR_AGE_MINUTES,
+): Boolean {
+    val ageMillis = nowMillis - timeSeconds * 1000L
+    return ageMillis in 0..maxAgeMinutes * 60_000L
 }
 
 /** Por dónde va a enterarse el usuario del aviso. */

@@ -48,10 +48,10 @@ data class AlarmConfigDto(
     val detectSnow: Boolean = false,
     val mode: String = "IN_RADIUS",
     val leadMinutes: Int = 30,
-    val minSpeedKmh: Double = 5.0,
+    val minSpeedKmh: Double = 3.0,
     val repeat: Boolean = false,
     val repeatMinutes: Int = 30,
-    val minIntervalMinutes: Int = 60,
+    val minIntervalMinutes: Int = 45,
     val notifyOnClear: Boolean = false,
     val snoozeMinutes: Int = 30,
     val quietEnabled: Boolean = false,
@@ -59,8 +59,8 @@ data class AlarmConfigDto(
     val quietTo: String = "07:00",
     val quietDays: List<Int> = emptyList(),
     val scheduleEnabled: Boolean = false,
-    val scheduleFrom: String = "08:00",
-    val scheduleTo: String = "20:00",
+    val scheduleFrom: String = "07:00",
+    val scheduleTo: String = "22:00",
     val scheduleDays: List<Int> = emptyList(),
     /** Tono de la alarma: uno de los ocho sintetizados. */
     val tone: String = "CLASSIC",
@@ -98,6 +98,8 @@ data class AlarmStateDto(
     val lastClearedAt: Long? = null,
     val lastCheckedAt: Long? = null,
     val snoozedUntil: Long? = null,
+    /** Último motivo por el que esta ubicación no pudo comprobarse. */
+    val lastError: String? = null,
 ) {
     fun toState(): AlarmState = AlarmState(
         active = active,
@@ -109,13 +111,14 @@ data class AlarmStateDto(
     )
 
     companion object {
-        fun from(state: AlarmState) = AlarmStateDto(
+        fun from(state: AlarmState, lastError: String? = null) = AlarmStateDto(
             active = state.active,
             activeKind = state.activeKind?.name,
             lastFiredAt = state.lastFiredAt,
             lastClearedAt = state.lastClearedAt,
             lastCheckedAt = state.lastCheckedAt,
             snoozedUntil = state.snoozedUntil,
+            lastError = lastError,
         )
     }
 }
@@ -162,6 +165,15 @@ data class Settings(
      * integra en el mapa base, más bonito pero menos visible.
      */
     val blend: String = "plain",
+    /** Capa principal del mapa: `radar`, `satellite` o `clouds`. */
+    val activeLayer: String = "radar",
+    /** Producto EUMETSAT: `geocolour`, `visible` o `infra`. */
+    val satelliteVariant: String = "geocolour",
+    /** Superpone el agregado informativo de rayos AEMET de las últimas 12 h. */
+    val showLightning: Boolean = false,
+    val satelliteOpacity: Float = 0.9f,
+    val cloudOpacity: Float = 0.72f,
+    val lightningOpacity: Float = 0.9f,
 )
 
 /** Temperatura en la unidad elegida. */

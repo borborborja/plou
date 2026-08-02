@@ -11,6 +11,9 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.time.Instant
+import java.time.ZoneOffset
+import java.util.Locale
 
 data class CurrentWeather(
     val temperature: Double?,
@@ -74,7 +77,7 @@ class OpenMeteoClient(private val http: OkHttpClient = defaultHttpClient()) {
         withContext(Dispatchers.IO) {
             val url = buildString {
                 append("https://api.open-meteo.com/v1/forecast")
-                append("?latitude=${"%.4f".format(at.lat)}&longitude=${"%.4f".format(at.lon)}")
+                append("?latitude=${apiCoordinate(at.lat)}&longitude=${apiCoordinate(at.lon)}")
                 append("&timezone=auto&forecast_days=$days")
                 append("&current=temperature_2m,apparent_temperature,relative_humidity_2m,")
                 append("precipitation,weather_code,cloud_cover,pressure_msl,wind_speed_10m,")
@@ -86,9 +89,10 @@ class OpenMeteoClient(private val http: OkHttpClient = defaultHttpClient()) {
                 append("&wind_speed_unit=kmh&precipitation_unit=mm&temperature_unit=celsius")
             }
             val root = get(url)
+            val utcOffsetSeconds = root["utc_offset_seconds"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
             Forecast(
                 current = parseCurrent(root["current"]?.jsonObject),
-                hourly = parseHourly(root["hourly"]?.jsonObject, hours),
+                hourly = parseHourly(root["hourly"]?.jsonObject, hours, utcOffsetSeconds),
                 daily = parseDaily(root["daily"]?.jsonObject),
             )
         }
@@ -140,7 +144,7 @@ class OpenMeteoClient(private val http: OkHttpClient = defaultHttpClient()) {
     private fun list(o: JsonObject?, key: String): List<String> =
         o?.get(key)?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
 
-    private fun parseHourly(o: JsonObject?, limit: Int): List<HourPoint> {
+    private fun parseHourly(o: JsonObject?, limit: Int, utcOffsetSeconds: Int): List<HourPoint> {
         val times = list(o, "time")
         if (times.isEmpty()) return emptyList()
         val temps = list(o, "temperature_2m")
@@ -149,7 +153,7 @@ class OpenMeteoClient(private val http: OkHttpClient = defaultHttpClient()) {
         val codes = list(o, "weather_code")
         val wind = list(o, "wind_speed_10m")
         // Se empieza en la hora en curso: lo pasado no interesa.
-        val nowIso = java.time.LocalDateTime.now().withMinute(0).withSecond(0).toString().take(13)
+        val nowIso = localHourKey(System.currentTimeMillis(), utcOffsetSeconds)
         val start = times.indexOfFirst { it >= nowIso }.coerceAtLeast(0)
         return times.drop(start).take(limit).mapIndexed { i, time ->
             val k = start + i
@@ -188,6 +192,20 @@ class OpenMeteoClient(private val http: OkHttpClient = defaultHttpClient()) {
         }
     }
 }
+
+/** Las API esperan punto decimal independientemente del idioma del teléfono. */
+internal fun apiCoordinate(value: Double): String = String.format(Locale.US, "%.4f", value)
+
+/** Hora local del lugar previsto, no la zona horaria donde se encuentra el móvil. */
+internal fun localHourKey(nowMillis: Long, utcOffsetSeconds: Int): String =
+    Instant.ofEpochMilli(nowMillis)
+        .atOffset(ZoneOffset.ofTotalSeconds(utcOffsetSeconds.coerceIn(-18 * 3600, 18 * 3600)))
+        .withMinute(0)
+        .withSecond(0)
+        .withNano(0)
+        .toLocalDateTime()
+        .toString()
+        .take(13)
 
 /** Descripción en castellano del código WMO. */
 fun weatherText(code: Int?): String = when (code) {

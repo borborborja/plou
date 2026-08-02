@@ -14,7 +14,7 @@ COPY web/package.json ./web/
 RUN npm ci
 
 COPY . .
-RUN npm run build
+RUN npm test && npm run build
 
 # Se descartan las dependencias de desarrollo para la imagen final.
 RUN npm prune --omit=dev

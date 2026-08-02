@@ -37,9 +37,13 @@ minutos, previsión horaria de 48 h y diaria de hasta 16 días.
 - **Horas de silencio** y **franja de vigilancia**, ambas con selección de días
   de la semana y soporte de franjas que cruzan la medianoche.
 - **Sonido de alarma** sintetizado: ocho tonos, volumen, duración, repetición
-  hasta descartar, subida gradual de volumen y vibración.
+  hasta descartar, subida gradual de volumen y vibración. En la PWA el tono
+  personalizado requiere que la aplicación esté abierta; cerrada, manda el
+  sonido de notificación del sistema.
 - **Historial de avisos** con lo que se detectó en cada uno.
-- **Ubicación que sigue al dispositivo**: se actualiza con tu posición.
+- **Ubicación que sigue al dispositivo**: la PWA la sincroniza al abrirse y
+  mientras permanece activa; Android puede seguirla en segundo plano con el
+  permiso de ubicación permanente.
 
 ### Radar
 
@@ -61,6 +65,24 @@ minutos, previsión horaria de 48 h y diaria de hasta 16 días.
 - Buscador de localidades sobre el mapa y botón para vigilar el punto elegido.
 - Toca cualquier punto del mapa para analizarlo al momento. Si no hay ecos en la
   zona se dice de forma explícita, para no confundir la calma con una avería.
+
+### Satélite, nubes y rayos
+
+- Selector de capa principal en el mapa: radar, satélite observado o previsión
+  de nubosidad total. La animación mantiene sólo cuatro fotogramas residentes
+  (anterior, actual y dos siguientes) y espera al siguiente antes de avanzar,
+  reduciendo parpadeos y consumo de memoria.
+- Satélite EUMETSAT de las últimas 2 h, cada 10 min, con Geo Colour, visible e
+  infrarrojo. No requiere clave y se obtiene del WMS público de EUMETView.
+- Nubosidad total prevista por OpenWeather, cada 3 h hasta 10 días. Requiere una
+  clave de Weather Maps 2.0 y desaparece de la animación si no está configurada.
+- Rayos nube-tierra de AEMET como superposición opcional: es una imagen agregada
+  de las últimas 12 h y la indicación de actividad cercana es **aproximada**. No
+  activa alarmas ni sustituye los avisos oficiales de protección civil.
+- La PWA guarda las claves sólo en el servidor. Android pide claves propias y
+  las cifra localmente con Android Keystore; nunca pasan por un servidor Plou.
+- El inventario de funciones de Windy y la hoja de ruta comparativa están en
+  [docs/windy-gap-analysis.md](docs/windy-gap-analysis.md).
 
 ### Previsión
 
@@ -156,6 +178,13 @@ pinggy 8787
 
 y abrir la URL `https://…` que devuelve.
 
+Un túnel hace visible la instancia en Internet. Para una instalación privada,
+define `PLOU_REGISTRATION_TOKEN` con un secreto largo y abre cada navegador
+nuevo una sola vez con `https://tu-instancia/?invite=EL_SECRETO`. Plou retira el
+parámetro de la URL y, desde entonces, reconoce ese dispositivo. Los límites de
+peticiones, dispositivos y ubicaciones son una segunda barrera; si necesitas
+control de acceso completo, añade autenticación en el proxy HTTPS.
+
 Las claves VAPID se guardan en `server/data/vapid.json` con permisos `600`. Si
 las regeneras, todas las suscripciones existentes dejan de ser válidas.
 
@@ -197,11 +226,26 @@ Todo se ajusta por variables de entorno; ninguna es obligatoria.
 | `PLOU_ALARM_ENABLED` | `true` | Activar el bucle de vigilancia |
 | `PLOU_ALARM_TICK` | `120` | Segundos entre ciclos de vigilancia |
 | `PLOU_ALARM_MAX_FRAME_AGE` | `30` | Minutos: si el radar va más retrasado, no se evalúa |
+| `PLOU_DEVICE_POSITION_MAX_AGE` | `30` | Minutos de validez de «mi posición» en la PWA |
 | `PLOU_RADAR_ZOOM` | `7` | Zoom de las teselas de análisis |
 | `PLOU_RADAR_TILE_CACHE` | `400` | Teselas decodificadas en memoria |
+| `PLOU_RADAR_TILE_CACHE_MB` | `128` | Tope aproximado de memoria para esas teselas |
+| `PLOU_EUMET_WMS_URL` | EUMETView | WMS público para los productos satelitales |
+| `PLOU_SATELLITE_HISTORY_MINUTES` | `120` | Historia satelital ofrecida por la API |
+| `PLOU_OPENWEATHER_API_KEY` | vacío | Habilita la previsión de nubes Weather Maps 2.0 |
+| `PLOU_AEMET_API_KEY` | vacío | Habilita el agregado informativo de rayos |
+| `PLOU_AEMET_LIGHTNING_BOUNDS` | `-19,27,5,45` | Extensión aproximada del gráfico AEMET |
+| `PLOU_AEMET_LIGHTNING_CROP` | `0,0,1,1` | Recorte normalizado para calibrar el gráfico AEMET |
+| `PLOU_MAP_TILE_CACHE` | `512` | Teselas de satélite/nubes/rayos conservadas en memoria |
 | `PLOU_FORECAST_TTL` | `600` | Segundos de caché de la previsión |
 | `PLOU_VAPID_SUBJECT` | `mailto:admin@localhost` | Contacto para el servicio de push |
 | `PLOU_VAPID_PUBLIC_KEY` / `PLOU_VAPID_PRIVATE_KEY` | del fichero | Claves push por entorno |
+| `PLOU_CORS_ORIGINS` | vacío | Orígenes externos autorizados, separados por comas |
+| `PLOU_TRUST_PROXY` | `false` | Confiar en `X-Forwarded-For` de un proxy controlado |
+| `PLOU_RATE_LIMIT_PER_MINUTE` | `300` | Peticiones máximas por IP y minuto |
+| `PLOU_MAX_DEVICES` | `100` | Dispositivos que puede registrar la instancia |
+| `PLOU_MAX_LOCATIONS_PER_DEVICE` | `20` | Ubicaciones por dispositivo |
+| `PLOU_REGISTRATION_TOKEN` | vacío | Invitación opcional para registrar navegadores nuevos |
 
 Ver `.env.example` para la lista completa, incluidas las de Foreca.
 
@@ -212,6 +256,9 @@ Ver `.env.example` para la lista completa, incluidas las de Foreca.
 | Dato | Fuente | Condiciones |
 | --- | --- | --- |
 | Mosaicos de radar | [RainViewer](https://www.rainviewer.com/api.html) | Acceso libre para uso personal y educativo; pide que se cite la fuente. Sin garantía de disponibilidad. |
+| Imágenes satelitales | [EUMETSAT EUMETView](https://user.eumetsat.int/resources/user-guides/eumet-view-user-guide) | WMS público; se muestran Geo Colour, visible e infrarrojo. |
+| Previsión de nubes | [OpenWeather Weather Maps 2.0](https://openweathermap.org/api/weather-map-2) | Requiere clave y plan compatible del usuario/instancia. |
+| Rayos nube-tierra | [AEMET OpenData](https://opendata.aemet.es/centrodedescargas/inicio) | Mapa gráfico agregado de 12 h; visualización e indicador aproximados. |
 | Previsión numérica | [Open-Meteo](https://open-meteo.com/) | Gratuita y sin clave para uso no comercial (CC BY 4.0). |
 | Búsqueda de localidades | [Open-Meteo Geocoding](https://open-meteo.com/en/docs/geocoding-api) | Igual que la anterior. |
 | Nombre de la posición actual | [BigDataCloud](https://www.bigdatacloud.com/) | Punto de acceso gratuito sin clave. |
@@ -267,7 +314,8 @@ Además de la PWA, el repositorio incluye una **aplicación nativa de Android**
 (Kotlin + Compose) que funciona **sin el servidor**: descarga las teselas de
 radar directamente y hace el análisis y la decisión de alarma en el propio
 móvil, con un servicio en primer plano y aviso a pantalla completa sobre la
-pantalla de bloqueo.
+pantalla de bloqueo. Satélite, nubes y rayos se consultan también de forma
+directa; las claves OpenWeather/AEMET se cifran con Android Keystore.
 
 ```bash
 cd android && ./gradlew assembleDebug
@@ -294,6 +342,7 @@ server/
       window       horas de silencio y franjas de vigilancia
       watcher      bucle de vigilancia en segundo plano
     forecast/      proveedores de previsión (Open-Meteo, Foreca) y geocodificación
+    map/           satélite, previsión de nubes y rayos
     routes/        API HTTP
     db.ts          SQLite con migraciones
   scripts/
@@ -317,7 +366,8 @@ scripts/
 
 Las rutas privadas se identifican con la cabecera `x-device-id`, un
 identificador opaco que genera el propio navegador. No hay cuentas de usuario ni
-datos personales: el dispositivo es la identidad.
+datos personales: el dispositivo es la identidad. Si la instancia configura
+`PLOU_REGISTRATION_TOKEN`, ese secreto sólo se exige durante el alta inicial.
 
 | Método y ruta | Para qué |
 | --- | --- |
@@ -336,6 +386,10 @@ datos personales: el dispositivo es la identidad.
 | `GET /api/radar/frames` | Fotogramas y plantillas de tesela para el mapa |
 | `GET /api/radar/legend` | Escalones de color de una escala, leídos de la paleta |
 | `GET /api/radar/analysis` | Análisis de un punto arbitrario |
+| `GET /api/map/layers` | Disponibilidad, cobertura y variantes de las capas |
+| `GET /api/map/frames` | Línea temporal normalizada de satélite, nubes o rayos |
+| `GET /api/map/tiles/:layer/:variant/:frame/:z/:x/:y.png` | Tesela normalizada sin exponer claves |
+| `GET /api/map/lightning/activity` | Actividad eléctrica cercana aproximada (12 h) |
 | `GET /api/forecast` | Previsión normalizada |
 | `GET /api/geocode`, `/api/geocode/reverse` | Búsqueda de localidades |
 | `GET /api/events` | Historial de avisos |
@@ -346,7 +400,7 @@ datos personales: el dispositivo es la identidad.
 ## Desarrollo
 
 ```bash
-npm test                                    # 105 pruebas unitarias
+npm test                                    # pruebas unitarias del servidor y la PWA
 npm run typecheck --workspace=@plou/server
 npx tsx server/scripts/check-radar.mts      # diagnóstico sobre datos reales
 npx tsx server/scripts/verify-motion.mts    # verifica el vector de movimiento
@@ -370,13 +424,20 @@ que la correlación recupera ese desplazamiento en magnitud y signo.
   extrapolación del proveedor; Plou calcula los suyos a partir del movimiento
   observado, que es fiable para sistemas organizados y menos para tormentas
   aisladas que se forman y disipan sobre el terreno.
-- El índice del proveedor tiene un apartado de satélite (nubosidad infrarroja),
-  pero en el acceso gratuito llega vacío, así que no hay capa de nubes: el mapa
-  muestra precipitación detectada por radar, no nubes.
+- El satélite EUMETSAT cubre su disco de observación, no todo el globo. Las nubes
+  de OpenWeather son una **previsión de modelo**, no una observación satelital.
+- AEMET entrega los rayos como gráfico agregado, no como impactos con coordenadas.
+  Plou elimina el fondo por color y lo georreferencia con límites aproximados;
+  hay que calibrar `PLOU_AEMET_LIGHTNING_BOUNDS/CROP` con una respuesta real antes
+  de considerar precisa la posición. Por eso no participa en las alarmas.
 - La extrapolación asume que la precipitación se traslada sin cambiar: no prevé
   que un chubasco se intensifique o se deshaga.
 - Los avisos push dependen del navegador. En iOS hay que instalar la app en la
   pantalla de inicio para que funcionen.
+- La PWA no recibe ubicación con el navegador totalmente cerrado. Cuando la
+  última posición supera `PLOU_DEVICE_POSITION_MAX_AGE`, el servidor deja de
+  evaluarla para no avisar en un lugar anterior; para seguimiento continuo está
+  la app Android.
 
 ---
 

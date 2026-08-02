@@ -29,9 +29,11 @@ function analysis(overrides: Partial<LocationAnalysis> = {}): LocationAnalysis {
     thresholdDbz: 20,
     radarCoverage: true,
     fieldCoverage: 0.1,
+    dataCoverage: 1,
     overhead: null,
     nearest: null,
     strongest: null,
+    arrival: null,
     cellsAboveThreshold: 0,
     areaCoveragePct: 0,
     motion: null,
@@ -137,6 +139,23 @@ describe('detectTrigger', () => {
     );
     expect(trigger?.kind).toBe('approaching');
     expect(trigger?.etaMinutes).toBe(15);
+  });
+
+  it('avisa antes de que el eco entre en el radio vigilado', () => {
+    const approaching = hit({ distanceKm: 42, bearingDeg: 270, compass: 'O' });
+    const trigger = detectTrigger(
+      config({ mode: 'approaching', leadMinutes: 30, minSpeedKmh: 3 }),
+      analysis({
+        // No hay eco dentro del radio ahora mismo.
+        nearest: null,
+        strongest: null,
+        arrival: approaching,
+        etaMinutes: 20,
+        motion: { east: 60, north: 0, speedKmh: 60, bearingDeg: 90, confidence: 0.8, samples: 500 },
+      }),
+    );
+
+    expect(trigger).toMatchObject({ kind: 'approaching', hit: approaching, etaMinutes: 20 });
   });
 });
 

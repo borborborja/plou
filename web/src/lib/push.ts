@@ -87,7 +87,11 @@ export async function hasActiveSubscription(): Promise<boolean> {
   const conocidas = await api.pushSubscriptions().catch(() => null);
   // Sin respuesta del servidor no se toca nada: puede ser falta de red.
   if (conocidas && !conocidas.some((s) => s.endpoint === subscription.endpoint)) {
-    await api.subscribePush(subscription.toJSON()).catch(() => undefined);
+    try {
+      await api.subscribePush(subscription.toJSON());
+    } catch {
+      return false;
+    }
   }
   return true;
 }

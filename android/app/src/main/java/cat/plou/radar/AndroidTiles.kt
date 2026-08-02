@@ -16,11 +16,14 @@ class AndroidTileSource(
     private val http: OkHttpClient = defaultHttpClient(),
     private val index: () -> RadarIndex,
     private val options: TileOptions = TileOptions(),
-    cacheEntries: Int = 120,
+    cacheKilobytes: Int = 24 * 1024,
 ) : TileSource {
 
     private val decoder = ColorDecoder(ColorScheme.byId(options.color))
-    private val cache = LruCache<String, DecodedTile>(cacheEntries)
+    private val cache = object : LruCache<String, DecodedTile>(cacheKilobytes) {
+        override fun sizeOf(key: String, value: DecodedTile): Int =
+            maxOf(1, (value.dbz.size * Short.SIZE_BYTES + value.kind.size + 1023) / 1024)
+    }
 
     override suspend fun tile(frame: RadarFrame, z: Int, x: Int, y: Int): DecodedTile? =
         withContext(Dispatchers.IO) {
@@ -29,8 +32,17 @@ class AndroidTileSource(
 
             val request = Request.Builder().url(url).header("User-Agent", "Plou/1.0").build()
             http.newCall(request).execute().use { response ->
-                // 404/204: fuera de cobertura o sin datos, no es un error.
-                if (response.code == 404 || response.code == 204) return@withContext null
+                // 404/204 es una respuesta completa que significa "sin eco".
+                // `null` queda reservado para fallos de red/decodificación, de
+                // modo que servidor y Android calculan igual `dataCoverage`.
+                if (response.code == 404 || response.code == 204) {
+                    return@withContext DecodedTile(
+                        options.size,
+                        ShortArray(options.size * options.size) { NO_ECHO },
+                        ByteArray(options.size * options.size),
+                        true,
+                    )
+                }
                 if (!response.isSuccessful) return@withContext null
                 val bytes = response.body?.bytes() ?: return@withContext null
                 val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)

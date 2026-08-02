@@ -2,7 +2,20 @@ import L from 'leaflet';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { useStore } from '../store';
-import type { GeocodeResult, RadarFrames, RadarLegend } from '../types';
+import type {
+  GeocodeResult,
+  LightningActivity,
+  MapFrames,
+  MapLayerCapability,
+  RadarFrames,
+  RadarLegend,
+} from '../types';
+
+interface AnimatedFrame {
+  time: number;
+  kind: 'past' | 'nowcast' | 'observed' | 'forecast';
+  template: string;
+}
 
 interface BaseSpec {
   url: string;
@@ -124,7 +137,9 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   const baseRef = useRef<L.TileLayer | null>(null);
   const labelsRef = useRef<L.TileLayer | null>(null);
   const coverageRef = useRef<L.TileLayer | null>(null);
+  const lightningRef = useRef<L.TileLayer | null>(null);
   const layersRef = useRef<(L.TileLayer | undefined)[]>([]);
+  const readyFramesRef = useRef(new Set<number>());
   const overlaysRef = useRef<L.LayerGroup | null>(null);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
@@ -136,6 +151,10 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   const [legendOpen, setLegendOpen] = useState(false);
   const [layersOpen, setLayersOpen] = useState(false);
   const [frames, setFrames] = useState<RadarFrames | null>(null);
+  const [weatherFrames, setWeatherFrames] = useState<MapFrames | null>(null);
+  const [mapCapabilities, setMapCapabilities] = useState<MapLayerCapability[]>([]);
+  const [lightningFrames, setLightningFrames] = useState<MapFrames | null>(null);
+  const [lightningStatus, setLightningStatus] = useState<LightningActivity | null>(null);
   const [framesError, setFramesError] = useState(false);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(settings.map.autoPlay);
@@ -148,9 +167,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   const [locateFailed, setLocateFailed] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Fotogramas que se animan: la historia elegida y, si se quiere, la
-  // extrapolación al futuro. El último fotograma pasado es siempre el «ahora».
-  const allFrames = useMemo(() => {
+  const radarAnimationFrames = useMemo<AnimatedFrame[]>(() => {
     if (!frames) return [];
     const newest = frames.past[frames.past.length - 1]?.time ?? Date.now();
     const from = newest - settings.map.historyMinutes * 60_000;
@@ -160,16 +177,25 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     return settings.map.showNowcast ? [...history, ...frames.nowcast] : history;
   }, [frames, settings.map.historyMinutes, settings.map.showNowcast]);
 
-  const pastCount = useMemo(
-    () => allFrames.filter((frame) => frame.kind === 'past').length,
+  const allFrames = useMemo<AnimatedFrame[]>(() => {
+    if (settings.map.activeLayer === 'radar') return radarAnimationFrames;
+    return (weatherFrames?.frames ?? []).map((frame) => ({
+      time: frame.time,
+      kind: frame.kind === 'aggregate' ? 'observed' : frame.kind,
+      template: frame.template,
+    }));
+  }, [radarAnimationFrames, settings.map.activeLayer, weatherFrames]);
+
+  const observedCount = useMemo(
+    () => allFrames.filter((frame) => frame.kind === 'past' || frame.kind === 'observed').length,
     [allFrames],
   );
 
   // Al cambiar el conjunto de fotogramas (refresco o nuevo intervalo elegido)
   // la animación se coloca sobre el último observado.
   useEffect(() => {
-    setIndex(Math.max(0, pastCount - 1));
-  }, [pastCount, allFrames.length]);
+    setIndex(settings.map.activeLayer === 'clouds' ? 0 : Math.max(0, observedCount - 1));
+  }, [observedCount, allFrames.length, settings.map.activeLayer]);
 
   // El mapa base `auto` acompaña al tema de la interfaz. De la claridad del
   // mapa base depende además cómo se mezclan las teselas del radar: sobre un
@@ -270,6 +296,85 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     };
   }, [settings.map.colorScheme, settings.map.smooth, settings.map.showSnow]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api
+      .mapLayers()
+      .then((data) => {
+        if (!cancelled) setMapCapabilities(data.layers);
+      })
+      .catch(() => {
+        if (!cancelled) setMapCapabilities([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Satélite y nubes usan el mismo contrato de fotogramas. Las teselas pasan
+  // por el servidor, por lo que las claves de proveedor nunca llegan al DOM.
+  useEffect(() => {
+    if (settings.map.activeLayer === 'radar') {
+      setWeatherFrames(null);
+      return;
+    }
+    let cancelled = false;
+    const layer = settings.map.activeLayer;
+    const variant = layer === 'satellite' ? settings.map.satelliteVariant : 'total';
+    const load = (): void => {
+      void api
+        .mapFrames(layer, variant)
+        .then((data) => {
+          if (!cancelled) {
+            setWeatherFrames(data);
+            setFramesError(false);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWeatherFrames(null);
+            setFramesError(true);
+          }
+        });
+    };
+    load();
+    const timer = window.setInterval(load, 10 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [settings.map.activeLayer, settings.map.satelliteVariant]);
+
+  useEffect(() => {
+    if (!settings.map.showLightning) {
+      setLightningFrames(null);
+      setLightningStatus(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .mapFrames('lightning', 'aemet-12h')
+      .then((data) => {
+        if (!cancelled) setLightningFrames(data);
+      })
+      .catch(() => {
+        if (!cancelled) setLightningFrames(null);
+      });
+    if (point) {
+      void api
+        .lightningActivity(point.lat, point.lon, analysis?.radiusKm ?? 20)
+        .then((status) => {
+          if (!cancelled) setLightningStatus(status);
+        })
+        .catch(() => {
+          if (!cancelled) setLightningStatus(null);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.map.showLightning, point?.lat, point?.lon, analysis?.radiusKm]);
+
   // La leyenda se lee de la misma paleta que las teselas, así que se recarga
   // cuando cambia la escala de color elegida.
   useEffect(() => {
@@ -306,123 +411,82 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     return () => window.clearInterval(timer);
   }, [settings.map.colorScheme, settings.map.smooth, settings.map.showSnow]);
 
-  // --- Capas de radar -----------------------------------------------------
+  // --- Capas animadas -----------------------------------------------------
+  const activeOpacity =
+    settings.map.activeLayer === 'radar'
+      ? settings.map.opacity
+      : settings.map.activeLayer === 'satellite'
+        ? settings.map.satelliteOpacity
+        : settings.map.cloudOpacity;
+
+  // Un cambio de producto invalida el pequeño búfer, no toda la caché HTTP.
+  useEffect(() => {
+    for (const layer of layersRef.current) layer?.remove();
+    layersRef.current = new Array(allFrames.length);
+    readyFramesRef.current.clear();
+    setLoadedCount(0);
+    return () => {
+      for (const layer of layersRef.current) layer?.remove();
+      layersRef.current = [];
+      readyFramesRef.current.clear();
+    };
+  }, [allFrames]);
+
+  // Sólo viven el anterior, el actual y dos siguientes. El siguiente se carga
+  // antes de avanzar y la transición CSS funde ambos sin destellos.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || allFrames.length === 0) return;
+    indexRef.current = Math.min(index, allFrames.length - 1);
+    const count = allFrames.length;
+    const keep = new Set([
+      (indexRef.current - 1 + count) % count,
+      indexRef.current,
+      (indexRef.current + 1) % count,
+      (indexRef.current + 2) % count,
+    ]);
+    const tileSize = settings.map.activeLayer === 'radar' ? (frames?.tileSize ?? 512) : 256;
+    const maxNativeZoom = settings.map.activeLayer === 'radar' ? (frames?.maxNativeZoom ?? 7) : 12;
 
-    for (const layer of layersRef.current) layer?.remove();
-    const layers: (L.TileLayer | undefined)[] = new Array(allFrames.length);
-    layersRef.current = layers;
-    setLoadedCount(0);
-
-    // El fotograma que se está mirando se carga solo, antes que los demás: el
-    // navegador abre unas seis conexiones por servidor, y si las trece capas
-    // compiten desde el principio, la imagen que interesa es la última en
-    // aparecer y el mapa se ve vacío durante segundos.
-    const currentIndex = Math.min(Math.max(0, pastCount - 1), allFrames.length - 1);
-    // El efecto de opacidad sincroniza esta referencia, pero aquí todavía no ha
-    // corrido: sin esto, el primer movimiento del mapa quitaría la capa visible.
-    indexRef.current = currentIndex;
-
-    let loaded = 0;
-    const create = (i: number): L.TileLayer => {
-      const layer = L.tileLayer(allFrames[i]!.template, {
-        opacity: i === indexRef.current ? settings.map.opacity : 0,
-        ...zoomOptions(frames?.tileSize ?? 512, frames?.maxNativeZoom ?? 7),
-        // Sin CORS: los píxeles se decodifican en el servidor, aquí sólo se
-        // dibujan. Pedirlas en modo CORS las hacía fallar de forma intermitente
-        // («No 'Access-Control-Allow-Origin' header is present») y el radar
-        // desaparecía sin motivo aparente.
-        className: 'radar-tiles',
-      });
-      layer.once('load', () => {
-        loaded++;
-        setLoadedCount(loaded);
-      });
-      layer.addTo(map);
-      layer.setZIndex(200 + i);
-      layers[i] = layer;
-      return layer;
-    };
-
-    const first = create(currentIndex);
-
-    // El resto se trae de uno en uno, cada cual cuando el anterior ha terminado:
-    // el navegador sólo mantiene unas seis conexiones por servidor, así que
-    // pedirlo todo a la vez no acelera nada y sí retrasa lo que se está viendo.
-    let cancelled = false;
-    let timer: number | undefined;
-    let queue: number[] = [];
-
-    const next = (): void => {
-      if (cancelled) return;
-      const i = queue.shift();
-      if (i === undefined) return;
-      const layer = layers[i] ?? create(i);
-      if (!map.hasLayer(layer)) layer.addTo(map);
-      // Se continúa al cargar, y también si tarda demasiado, para no encallarse.
-      layer.once('load', () => {
-        window.clearTimeout(timer);
-        next();
-      });
-      timer = window.setTimeout(next, 4000);
-    };
-
-    const loadRest = (): void => {
-      window.clearTimeout(timer);
-      // Se recorre `allFrames`, no `layers`: este último es disperso mientras
-      // faltan capas por crear, y `map`/`filter` se saltan los huecos.
-      queue = allFrames.map((_, i) => i).filter((i) => i !== indexRef.current);
-      next();
-    };
-
-    /**
-     * Al mover o ampliar el mapa hacen falta teselas nuevas de *cada* capa. Si
-     * las trece las piden a la vez, el fotograma que se está viendo llega el
-     * último y el mapa parece vaciarse. Durante el gesto sólo queda ese
-     * fotograma; los demás se rehacen al terminar.
-     */
-    const onMoveStart = (): void => {
-      window.clearTimeout(timer);
-      queue = [];
-      for (let i = 0; i < layers.length; i++) {
-        if (i !== indexRef.current) layers[i]?.remove();
+    for (const i of keep) {
+      let layer = layersRef.current[i];
+      if (!layer) {
+        layer = L.tileLayer(allFrames[i]!.template, {
+          opacity: i === indexRef.current ? activeOpacity : 0,
+          ...zoomOptions(tileSize, maxNativeZoom),
+          className: `animated-weather-tiles ${settings.map.activeLayer}-tiles`,
+          attribution: allFrames[i]!.kind === 'forecast' ? '© OpenWeather' : undefined,
+        });
+        layer.once('load', () => {
+          readyFramesRef.current.add(i);
+          setLoadedCount(readyFramesRef.current.size);
+        });
+        layer.addTo(map);
+        layer.setZIndex(200 + i);
+        layersRef.current[i] = layer;
+      } else if (!map.hasLayer(layer)) {
+        layer.addTo(map);
       }
-    };
-    const onMoveEnd = (): void => {
-      const current = layers[indexRef.current];
-      if (current && !map.hasLayer(current)) current.addTo(map);
-      loadRest();
-    };
-
-    map.on('movestart zoomstart', onMoveStart);
-    map.on('moveend zoomend', onMoveEnd);
-
-    first.once('load', loadRest);
-    const startFallback = window.setTimeout(loadRest, 4000);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(startFallback);
-      window.clearTimeout(timer);
-      map.off('movestart zoomstart', onMoveStart);
-      map.off('moveend zoomend', onMoveEnd);
-      for (const layer of layersRef.current) layer?.remove();
-      layersRef.current = [];
-    };
-    // `settings.map.opacity` sólo fija el valor inicial: los cambios los aplica
-    // el efecto siguiente, sin rehacer las capas.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allFrames, pastCount, frames?.maxNativeZoom, frames?.tileSize]);
-
-  // Sólo el fotograma actual es visible.
-  useEffect(() => {
-    indexRef.current = index;
+    }
     layersRef.current.forEach((layer, i) => {
-      layer?.setOpacity(i === index ? settings.map.opacity : 0);
+      if (!layer) return;
+      if (!keep.has(i)) {
+        layer.remove();
+        layersRef.current[i] = undefined;
+        readyFramesRef.current.delete(i);
+        return;
+      }
+      layer.setOpacity(i === indexRef.current ? activeOpacity : 0);
     });
-  }, [index, settings.map.opacity, loadedCount]);
+  }, [
+    allFrames,
+    index,
+    activeOpacity,
+    settings.map.activeLayer,
+    frames?.maxNativeZoom,
+    frames?.tileSize,
+    loadedCount,
+  ]);
 
   // --- Capa de cobertura --------------------------------------------------
   useEffect(() => {
@@ -430,14 +494,34 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     if (!map) return;
     coverageRef.current?.remove();
     coverageRef.current = null;
-    if (!settings.map.showCoverage || !frames) return;
+    if (settings.map.activeLayer !== 'radar' || !settings.map.showCoverage || !frames) return;
     coverageRef.current = L.tileLayer(frames.coverageTemplate, {
       opacity: 0.4,
       ...zoomOptions(frames.tileSize, frames.coverageMaxNativeZoom),
       className: 'coverage-tiles',
     }).addTo(map);
     coverageRef.current.setZIndex(150);
-  }, [settings.map.showCoverage, frames]);
+  }, [settings.map.activeLayer, settings.map.showCoverage, frames]);
+
+  // Los rayos son una superposición independiente de la capa principal.
+  useEffect(() => {
+    const map = mapRef.current;
+    lightningRef.current?.remove();
+    lightningRef.current = null;
+    const frame = lightningFrames?.frames[0];
+    if (!map || !settings.map.showLightning || !frame) return;
+    lightningRef.current = L.tileLayer(frame.template, {
+      opacity: settings.map.lightningOpacity,
+      ...zoomOptions(256, 12),
+      className: 'lightning-tiles',
+      attribution: 'Fuente: AEMET',
+    }).addTo(map);
+    lightningRef.current.setZIndex(350);
+    return () => {
+      lightningRef.current?.remove();
+      lightningRef.current = null;
+    };
+  }, [lightningFrames, settings.map.showLightning, settings.map.lightningOpacity]);
 
   // --- Animación ----------------------------------------------------------
   useEffect(() => {
@@ -447,10 +531,20 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
       ? settings.map.frameDurationMs + settings.map.lastFrameHoldMs
       : settings.map.frameDurationMs;
     const timer = window.setTimeout(() => {
-      setIndex((i) => (i + 1) % allFrames.length);
+      const next = (index + 1) % allFrames.length;
+      // No se avanza a un mapa vacío. Si el proveedor va lento se conserva el
+      // fotograma bueno y se vuelve a intentar en el siguiente ciclo corto.
+      if (readyFramesRef.current.has(next)) setIndex(next);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [playing, index, allFrames.length, settings.map.frameDurationMs, settings.map.lastFrameHoldMs]);
+  }, [
+    playing,
+    index,
+    allFrames.length,
+    loadedCount,
+    settings.map.frameDurationMs,
+    settings.map.lastFrameHoldMs,
+  ]);
 
   // --- Marcadores y círculos ---------------------------------------------
   useEffect(() => {
@@ -580,9 +674,15 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
 
   // --- Datos derivados de la barra de tiempo -------------------------------
   const currentFrame = allFrames[index];
-  const isNowcast = currentFrame?.kind === 'nowcast';
-  const nowIndex = Math.max(0, pastCount - 1);
+  const isNowcast = currentFrame?.kind === 'nowcast' || currentFrame?.kind === 'forecast';
+  const nowIndex = settings.map.activeLayer === 'clouds' ? 0 : Math.max(0, observedCount - 1);
   const nowTime = allFrames[nowIndex]?.time;
+  const frameTitle =
+    currentFrame?.kind === 'forecast'
+      ? strings.forecastFrame
+      : currentFrame?.kind === 'nowcast'
+        ? strings.frameForecast
+        : strings.frameObserved;
 
   const timeLabel = currentFrame
     ? new Intl.DateTimeFormat(undefined, {
@@ -601,10 +701,32 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
 
   // Que no haya ecos se dice de forma explícita: un radar en calma y una capa
   // que no ha cargado se ven igual, y eso desconcierta.
-  const noEchoes = Boolean(analysis && !analysis.overhead && !analysis.nearest);
+  const noEchoes = Boolean(
+    settings.map.activeLayer === 'radar' &&
+      analysis &&
+      !analysis.overhead &&
+      !analysis.nearest &&
+      !analysis.arrival,
+  );
 
   const setMap = (patch: Partial<typeof settings.map>): void => {
     void updateSettings({ map: { ...settings.map, ...patch } });
+  };
+
+  const layerConfigured = (id: 'satellite' | 'clouds' | 'lightning'): boolean =>
+    mapCapabilities.find((layer) => layer.id === id)?.configured ?? id === 'satellite';
+
+  const opacitySetting =
+    settings.map.activeLayer === 'radar'
+      ? settings.map.opacity
+      : settings.map.activeLayer === 'satellite'
+        ? settings.map.satelliteOpacity
+        : settings.map.cloudOpacity;
+
+  const setActiveOpacity = (opacity: number): void => {
+    if (settings.map.activeLayer === 'radar') setMap({ opacity });
+    else if (settings.map.activeLayer === 'satellite') setMap({ satelliteOpacity: opacity });
+    else setMap({ cloudOpacity: opacity });
   };
 
   return (
@@ -665,6 +787,14 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
       <div className="radar-map__badges">
         {isNowcast && <span className="badge badge--accent">{strings.extrapolated}</span>}
         {framesError && <span className="badge badge--error">{strings.unknown}</span>}
+        {settings.map.showLightning && lightningStatus && (
+          <span className={`badge ${lightningStatus.active ? 'badge--accent' : ''}`}>
+            ⚡{' '}
+            {lightningStatus.active
+              ? strings.lightningNearbyApprox
+              : strings.noLightningApprox}
+          </span>
+        )}
         {noEchoes && !isNowcast && !framesError && (
           <span className="badge">{strings.noEchoesInView}</span>
         )}
@@ -692,24 +822,76 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
 
         {layersOpen && (
           <div className="maptools__panel glass">
-            {/* --- Capa de precipitación --- */}
-            <p className="maptools__group">{strings.precipLayer}</p>
+            <p className="maptools__group">{strings.weatherLayers}</p>
+            <div className="chips maptools__layerchips">
+              {(
+                [
+                  ['radar', strings.radarLayer, true],
+                  ['satellite', strings.satelliteLayer, layerConfigured('satellite')],
+                  ['clouds', strings.cloudLayer, layerConfigured('clouds')],
+                ] as const
+              ).map(([layer, label, configured]) => (
+                <button
+                  key={layer}
+                  type="button"
+                  disabled={!configured}
+                  className={`chip ${settings.map.activeLayer === layer ? 'is-active' : ''}`}
+                  onClick={() => setMap({ activeLayer: layer })}
+                  title={configured ? undefined : strings.layerUnavailable}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <p className="maptools__group">
+              {settings.map.activeLayer === 'radar'
+                ? strings.precipLayer
+                : settings.map.activeLayer === 'satellite'
+                  ? strings.satelliteLayer
+                  : strings.cloudLayer}
+            </p>
 
             <label className="maptools__row">
               <span>
-                {strings.opacity} <em>{Math.round(settings.map.opacity * 100)} %</em>
+                {strings.opacity} <em>{Math.round(opacitySetting * 100)} %</em>
               </span>
               <input
                 type="range"
                 min={20}
                 max={100}
                 step={5}
-                value={Math.round(settings.map.opacity * 100)}
-                onChange={(e) => setMap({ opacity: Number(e.target.value) / 100 })}
+                value={Math.round(opacitySetting * 100)}
+                onChange={(e) => setActiveOpacity(Number(e.target.value) / 100)}
                 className="slider"
               />
             </label>
 
+            {settings.map.activeLayer === 'satellite' && (
+              <div className="maptools__row">
+                <span>{strings.satelliteLayer}</span>
+                <div className="chips">
+                  {(
+                    [
+                      ['geocolour', strings.satelliteGeoColour],
+                      ['visible', strings.satelliteVisible],
+                      ['infra', strings.satelliteInfra],
+                    ] as const
+                  ).map(([variant, label]) => (
+                    <button
+                      key={variant}
+                      type="button"
+                      className={`chip ${settings.map.satelliteVariant === variant ? 'is-active' : ''}`}
+                      onClick={() => setMap({ satelliteVariant: variant })}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {settings.map.activeLayer === 'radar' && <>
             <div className="maptools__row">
               <span>{strings.blendMode}</span>
               <div className="chips">
@@ -773,10 +955,25 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
                 {strings.showCoverage}
               </label>
             </div>
+            </>}
+
+            <label className="maptools__check">
+              <input
+                type="checkbox"
+                checked={settings.map.showLightning}
+                disabled={!layerConfigured('lightning')}
+                onChange={(e) => setMap({ showLightning: e.target.checked })}
+              />
+              {strings.lightningLayer}
+            </label>
+            {!layerConfigured('lightning') && (
+              <p className="maptools__note">{strings.layerUnavailable}</p>
+            )}
 
             {/* --- Tiempo animado --- */}
             <p className="maptools__group">{strings.timeSpan}</p>
 
+            {settings.map.activeLayer === 'radar' && <>
             <div className="maptools__row">
               <span>{strings.historySpan}</span>
               <div className="chips">
@@ -807,6 +1004,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
             ) : (
               <p className="maptools__note">{strings.noNowcastAvailable}</p>
             )}
+            </>}
 
             <div className="maptools__row">
               <span>{strings.animationSpeed}</span>
@@ -827,7 +1025,9 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
             </div>
 
             <p className="maptools__note">
-              {strings.framesShown(allFrames.length, Math.round(settings.map.historyMinutes))}
+              {settings.map.activeLayer === 'radar'
+                ? strings.framesShown(allFrames.length, Math.round(settings.map.historyMinutes))
+                : strings.frameCount(allFrames.length)}
             </p>
           </div>
         )}
@@ -869,14 +1069,14 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
 
         <span
           className={`radar-map__time ${isNowcast ? 'is-nowcast' : ''}`}
-          title={isNowcast ? strings.frameForecast : strings.frameObserved}
+          title={frameTitle}
         >
           <strong>{timeLabel}</strong>
           <em>{offsetLabel}</em>
         </span>
       </div>
 
-      {legend && (
+      {legend && settings.map.activeLayer === 'radar' && (
         <div className={`legend ${legendOpen ? 'is-open' : ''}`}>
           <button
             type="button"

@@ -46,6 +46,19 @@ export async function checkLocation(db: Db, location: Location): Promise<'fired'
   const state = getAlarmState(db, location.id);
   const now = Date.now();
 
+  if (
+    location.followDevice &&
+    (location.positionUpdatedAt === null ||
+      now - location.positionUpdatedAt > config.alarm.maxDevicePositionAgeMinutes * 60_000)
+  ) {
+    saveAlarmState(db, {
+      ...state,
+      last_checked_at: now,
+      last_error: 'la posición del dispositivo es demasiado antigua; abre Plou para actualizarla',
+    });
+    return 'error';
+  }
+
   try {
     const analysis = await analyzeLocation(
       { lat: location.lat, lon: location.lon },

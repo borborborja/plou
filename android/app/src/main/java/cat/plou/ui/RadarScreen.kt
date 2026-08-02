@@ -49,9 +49,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import cat.plou.data.PlouStore
+import cat.plou.data.ProviderSecrets
 import cat.plou.data.Settings
 import cat.plou.data.distance
 import cat.plou.data.WatchedLocation
+import cat.plou.location.currentDeviceLocation
+import cat.plou.map.LightningSnapshot
+import cat.plou.map.ProviderClient
+import cat.plou.map.WeatherFrame
+import cat.plou.map.WeatherTileSource
+import cat.plou.map.cloudFrames
+import cat.plou.map.satelliteFrames
 import cat.plou.radar.AnalyzeOptions
 import cat.plou.radar.AndroidTileSource
 import cat.plou.radar.ColorScheme
@@ -78,6 +86,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.FolderOverlay
+import org.osmdroid.views.overlay.GroundOverlay
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.TilesOverlay
 import java.text.SimpleDateFormat
@@ -140,11 +149,17 @@ fun RadarScreen(
     var playing by remember { mutableStateOf(true) }
     var analysis by remember { mutableStateOf<LocationAnalysis?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var lightning by remember { mutableStateOf<LightningSnapshot?>(null) }
+    var lightningError by remember { mutableStateOf<String?>(null) }
 
     var mapRef by remember { mutableStateOf<MapView?>(null) }
     var locating by remember { mutableStateOf(false) }
     var myPosition by remember { mutableStateOf<GeoPoint?>(null) }
     val scope = rememberCoroutineScope()
+    val secrets = remember { ProviderSecrets(context) }
+    val providerClient = remember { ProviderClient() }
+    val openWeatherKey = secrets.getOpenWeatherKey()
+    val aemetKey = secrets.getAemetKey()
 
     // Permiso de ubicación: se pide sólo cuando se pulsa el botón.
     val askLocation = rememberLauncherForActivityResult(
@@ -184,7 +199,8 @@ fun RadarScreen(
     }
 
     // Índice de fotogramas: se pide al abrir y se refresca cada cinco minutos.
-    LaunchedEffect(settings.colorScheme, settings.smooth, settings.showSnow) {
+    LaunchedEffect(settings.activeLayer, settings.colorScheme, settings.smooth, settings.showSnow) {
+        if (settings.activeLayer != "radar") return@LaunchedEffect
         while (true) {
             runCatching { withContext(Dispatchers.IO) { client.get() } }
                 .onSuccess {
@@ -221,15 +237,47 @@ fun RadarScreen(
         val desde = newest - settings.historyMinutes * 60L
         all.filter { it.nowcast || it.time >= desde }.ifEmpty { all.takeLast(1) }
     }
+    val weatherFrames = remember(settings.activeLayer, openWeatherKey) {
+        when (settings.activeLayer) {
+            "satellite" -> satelliteFrames()
+            "clouds" -> if (openWeatherKey.isBlank()) emptyList() else cloudFrames()
+            else -> emptyList()
+        }
+    }
+    val visibleFrameCount = if (settings.activeLayer == "radar") frames.size else weatherFrames.size
+
+    LaunchedEffect(settings.activeLayer, weatherFrames.firstOrNull()?.id) {
+        frame = if (settings.activeLayer == "clouds") 0 else (visibleFrameCount - 1).coerceAtLeast(0)
+    }
+
+    LaunchedEffect(settings.showLightning, aemetKey) {
+        if (!settings.showLightning || aemetKey.isBlank()) {
+            lightning = null
+            lightningError = if (settings.showLightning) "Falta la clave AEMET" else null
+            return@LaunchedEffect
+        }
+        while (true) {
+            runCatching { withContext(Dispatchers.IO) { providerClient.loadLightning(aemetKey) } }
+                .onSuccess { lightning = it; lightningError = null }
+                .onFailure { lightningError = it.message ?: "No se ha podido leer AEMET" }
+            delay(10 * 60_000L)
+        }
+    }
 
     // Carga progresiva: al abrir sólo se pide el fotograma que se está viendo,
     // y los demás se van sumando de uno en uno. Pedir las trece capas a la vez
     // son varios megas de golpe y el mapa tarda en aparecer.
-    var loadedFrames by remember(frames.size) { mutableIntStateOf(if (frames.isEmpty()) 0 else 1) }
-    LaunchedEffect(frames.size) {
-        if (frames.isEmpty()) return@LaunchedEffect
+    var loadedFrames by remember(visibleFrameCount) {
+        mutableIntStateOf(if (visibleFrameCount == 0) 0 else minOf(4, visibleFrameCount))
+    }
+    LaunchedEffect(visibleFrameCount, settings.activeLayer) {
+        if (visibleFrameCount == 0) return@LaunchedEffect
+        loadedFrames = minOf(4, visibleFrameCount)
+        // Radar conserva su precarga progresiva; satélite y nubes mantienen una
+        // ventana residente de cuatro fotogramas alrededor del actual.
+        if (settings.activeLayer != "radar") return@LaunchedEffect
         loadedFrames = 1
-        while (loadedFrames < frames.size) {
+        while (loadedFrames < visibleFrameCount) {
             delay(700)
             loadedFrames++
         }
@@ -237,18 +285,21 @@ fun RadarScreen(
 
     // La animación no empieza hasta que están todos los fotogramas: así no se
     // ven huecos en los primeros ciclos.
-    LaunchedEffect(playing, frames.size, loadedFrames, settings.frameDurationMs) {
-        if (!playing || frames.size < 2 || loadedFrames < frames.size) return@LaunchedEffect
+    LaunchedEffect(playing, visibleFrameCount, loadedFrames, settings.frameDurationMs, settings.activeLayer) {
+        if (!playing || visibleFrameCount < 2) return@LaunchedEffect
+        if (settings.activeLayer == "radar" && loadedFrames < visibleFrameCount) return@LaunchedEffect
         while (true) {
             delay(settings.frameDurationMs.toLong())
-            frame = (frame + 1) % frames.size
+            frame = (frame + 1) % visibleFrameCount
         }
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (frames.isEmpty()) {
+        if (settings.activeLayer == "radar" && frames.isEmpty()) {
             EmptyHint(error ?: "Cargando el radar…")
-        } else {
+        } else if (settings.activeLayer != "radar" && weatherFrames.isEmpty()) {
+            EmptyHint(if (settings.activeLayer == "clouds") "Añade tu clave OpenWeather en Ajustes" else "Cargando la capa…")
+        } else if (settings.activeLayer == "radar") {
             RadarMap(
                 index = index!!,
                 frameIndex = frame,
@@ -266,6 +317,24 @@ fun RadarScreen(
                 blend = settings.blend,
                 showCoverage = settings.showCoverage,
                 coverageHost = index!!.host,
+                lightning = lightning,
+                lightningOpacity = settings.lightningOpacity,
+                onMapReady = { mapRef = it },
+            )
+        } else {
+            WeatherMap(
+                layer = settings.activeLayer,
+                variant = settings.satelliteVariant,
+                frames = weatherFrames,
+                frameIndex = frame,
+                openWeatherKey = openWeatherKey,
+                opacity = if (settings.activeLayer == "satellite") settings.satelliteOpacity else settings.cloudOpacity,
+                center = active?.let { GeoPoint(it.lat, it.lon) },
+                baseMap = settings.baseMap,
+                myPosition = myPosition,
+                watched = active?.let { GeoPoint(it.lat, it.lon) },
+                lightning = lightning,
+                lightningOpacity = settings.lightningOpacity,
                 onMapReady = { mapRef = it },
             )
         }
@@ -295,15 +364,38 @@ fun RadarScreen(
 
         // Estado del radar: cuántos fotogramas hay listos y si hay ecos. Sin
         // esto, un radar en calma y una capa que no ha cargado se ven igual.
-        RadarStatus(
-            frames = frames.size,
-            loaded = loadedFrames,
-            analysis = analysis,
+        WeatherLayerPicker(
+            selected = settings.activeLayer,
+            satelliteVariant = settings.satelliteVariant,
+            cloudsConfigured = openWeatherKey.isNotBlank(),
+            onLayer = { scope.launch { store.saveSettings(settings.copy(activeLayer = it)) } },
+            onVariant = { scope.launch { store.saveSettings(settings.copy(satelliteVariant = it)) } },
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = topInset)
-                .padding(top = 52.dp),
+                .padding(top = 4.dp),
         )
+
+        if (settings.activeLayer == "radar") {
+            RadarStatus(
+                frames = frames.size,
+                loaded = loadedFrames,
+                analysis = analysis,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topInset).padding(top = 96.dp),
+            )
+        } else {
+            val status = when {
+                lightningError != null -> lightningError!!
+                lightning?.hasActivity == true -> "Actividad eléctrica aproximada · 12 h"
+                settings.showLightning -> "Sin actividad eléctrica visible · aprox."
+                settings.activeLayer == "clouds" -> "Previsión · ${weatherFrames.size} fotogramas"
+                else -> "Satélite · ${weatherFrames.size} fotogramas"
+            }
+            Card(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = topInset).padding(top = 96.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+            ) { Text(status, Modifier.padding(horizontal = 10.dp, vertical = 6.dp), fontSize = 12.sp) }
+        }
 
         MapControls(
             modifier = Modifier
@@ -323,22 +415,54 @@ fun RadarScreen(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            analysis?.let { SummaryCard(active?.name.orEmpty(), it, settings) }
-            Legend(scheme, settings.showSnow)
-            if (frames.isNotEmpty()) {
+            if (settings.activeLayer == "radar") {
+                analysis?.let { SummaryCard(active?.name.orEmpty(), it, settings) }
+                Legend(scheme, settings.showSnow)
+            }
+            if (visibleFrameCount > 0) {
                 Timeline(
-                    frames = frames.size,
+                    frames = visibleFrameCount,
                     current = frame,
                     playing = playing,
-                    label = frames.getOrNull(frame)?.let {
-                        SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it.time * 1000))
-                    } ?: "--:--",
+                    label = if (settings.activeLayer == "radar") {
+                        frames.getOrNull(frame)?.let {
+                            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it.time * 1000))
+                        } ?: "--:--"
+                    } else {
+                        weatherFrames.getOrNull(frame)?.let {
+                            val prefix = if (it.kind == "forecast") "Previsión " else ""
+                            prefix + SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(it.time))
+                        } ?: "--:--"
+                    },
                     onTogglePlay = { playing = !playing },
                     onSeek = { playing = false; frame = it },
                 )
             }
         }
     }
+}
+
+private fun mapBaseSource(baseMap: String, dark: Boolean): OnlineTileSourceBase = when (baseMap) {
+    "light" -> cartoSource("carto-light", "light_all")
+    "dark" -> cartoSource("carto-dark", "dark_all")
+    "streets" -> XYTileSource(
+        "osm", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/"),
+        "© Colaboradores de OpenStreetMap",
+    )
+    "terrain" -> XYTileSource(
+        "topo", 0, 17, 256, ".png",
+        arrayOf("https://a.tile.opentopomap.org/", "https://b.tile.opentopomap.org/"),
+        "© OpenTopoMap (CC-BY-SA)",
+    )
+    else -> if (dark) cartoSource("carto-dark", "dark_all") else cartoSource("carto-light", "light_all")
+}
+
+private fun lightningOverlay(snapshot: LightningSnapshot, opacity: Float) = GroundOverlay().apply {
+    setImage(snapshot.bitmap)
+    // Cobertura nominal del producto gráfico AEMET. Es una aproximación
+    // configurable en el servidor y deberá calibrarse con una clave real.
+    setPosition(GeoPoint(45.0, -19.0), GeoPoint(27.0, 5.0))
+    setTransparency(1f - opacity.coerceIn(0f, 1f))
 }
 
 @Composable
@@ -359,28 +483,14 @@ private fun RadarMap(
     blend: String,
     showCoverage: Boolean,
     coverageHost: String,
+    lightning: LightningSnapshot?,
+    lightningOpacity: Float,
     onMapReady: (MapView) -> Unit,
 ) {
     val context = LocalContext.current
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
-    val baseSource = remember(baseMap, dark) {
-        when (baseMap) {
-            "light" -> cartoSource("carto-light", "light_all")
-            "dark" -> cartoSource("carto-dark", "dark_all")
-            "streets" -> XYTileSource(
-                "osm", 0, 19, 256, ".png",
-                arrayOf("https://tile.openstreetmap.org/"),
-                "© Colaboradores de OpenStreetMap",
-            )
-            "terrain" -> XYTileSource(
-                "topo", 0, 17, 256, ".png",
-                arrayOf("https://a.tile.opentopomap.org/", "https://b.tile.opentopomap.org/"),
-                "© OpenTopoMap (CC-BY-SA)",
-            )
-            else -> if (dark) cartoSource("carto-dark", "dark_all") else cartoSource("carto-light", "light_all")
-        }
-    }
+    val baseSource = remember(baseMap, dark) { mapBaseSource(baseMap, dark) }
 
     val map = remember {
         org.osmdroid.config.Configuration.getInstance().userAgentValue = "Plou/1.0"
@@ -438,6 +548,9 @@ private fun RadarMap(
     }
     val hiddenFilter = remember { alphaFilter(0f) }
     val marcadores = remember { FolderOverlay() }
+    val rayos = remember(lightning?.updatedAt, lightningOpacity) {
+        lightning?.let { lightningOverlay(it, lightningOpacity) }
+    }
 
     // Capa de zonas sin cobertura de radar. El proveedor sólo la publica hasta
     // el zoom 5; por encima llega vacía.
@@ -470,7 +583,9 @@ private fun RadarMap(
             if (view.tileProvider.tileSource !== baseSource) view.setTileSource(baseSource)
             // Sólo se toca la lista de capas cuando cambia el conjunto: rehacerla
             // en cada fotograma reiniciaría el dibujado y volvería a parpadear.
-            if (view.overlays.size != overlays.size || !view.overlays.containsAll(overlays)) {
+            // Marcadores, rayos y cobertura se añaden después; no deben hacer
+            // que se reconstruyan todas las capas animadas en cada frame.
+            if (view.overlays.take(overlays.size) != overlays) {
                 view.overlays.clear()
                 view.overlays.addAll(overlays)
             }
@@ -506,11 +621,167 @@ private fun RadarMap(
             } else if (!showCoverage) {
                 view.overlays.remove(coverage)
             }
+            rayos?.let { if (!view.overlays.contains(it)) view.overlays.add(it) }
             if (!view.overlays.contains(marcadores)) view.overlays.add(marcadores)
 
             view.invalidate()
         },
     )
+}
+
+/** Mapa de satélite/nubes con una ventana residente de cuatro fotogramas. */
+@Composable
+private fun WeatherMap(
+    layer: String,
+    variant: String,
+    frames: List<WeatherFrame>,
+    frameIndex: Int,
+    openWeatherKey: String,
+    opacity: Float,
+    center: GeoPoint?,
+    baseMap: String,
+    myPosition: GeoPoint?,
+    watched: GeoPoint?,
+    lightning: LightningSnapshot?,
+    lightningOpacity: Float,
+    onMapReady: (MapView) -> Unit,
+) {
+    val context = LocalContext.current
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val baseSource = remember(baseMap, dark) { mapBaseSource(baseMap, dark) }
+    val map = remember {
+        org.osmdroid.config.Configuration.getInstance().userAgentValue = "Plou/1.0"
+        MapView(context).apply {
+            setMultiTouchControls(true)
+            controller.setZoom(8.0)
+            minZoomLevel = 3.0
+        }
+    }
+    DisposableEffect(Unit) {
+        onMapReady(map)
+        onDispose { map.onDetach() }
+    }
+
+    fun alphaFilter(alpha: Float) = android.graphics.ColorMatrixColorFilter(
+        android.graphics.ColorMatrix(
+            floatArrayOf(
+                1f, 0f, 0f, 0f, 0f,
+                0f, 1f, 0f, 0f, 0f,
+                0f, 0f, 1f, 0f, 0f,
+                0f, 0f, 0f, alpha, 0f,
+            ),
+        ),
+    )
+    val visibleFilter = remember(opacity) { alphaFilter(opacity) }
+    val hiddenFilter = remember { alphaFilter(0f) }
+    val cache = remember(layer, variant, openWeatherKey) { mutableMapOf<String, TilesOverlay>() }
+    val resident = remember(frames, frameIndex, layer, variant, openWeatherKey) {
+        if (frames.isEmpty()) emptyList() else {
+            val count = frames.size
+            val indices = listOf(frameIndex - 1, frameIndex, frameIndex + 1, frameIndex + 2)
+                .map { (it % count + count) % count }.distinct()
+            val ids = indices.map { frames[it].id }.toSet()
+            cache.keys.filterNot { it in ids }.forEach { cache.remove(it)?.onDetach(null) }
+            indices.map { index ->
+                val item = frames[index]
+                index to cache.getOrPut(item.id) {
+                    val source = WeatherTileSource(layer, variant, item, openWeatherKey)
+                    val provider = MapTileProviderBasic(context, source).apply { tileCache.ensureCapacity(96) }
+                    TilesOverlay(provider, context).apply {
+                        loadingBackgroundColor = AndroidColor.TRANSPARENT
+                        loadingLineColor = AndroidColor.TRANSPARENT
+                    }
+                }
+            }
+        }
+    }
+    val markers = remember { FolderOverlay() }
+    val rayos = remember(lightning?.updatedAt, lightningOpacity) {
+        lightning?.let { lightningOverlay(it, lightningOpacity) }
+    }
+
+    AndroidView(
+        factory = { map },
+        modifier = Modifier.fillMaxSize(),
+        update = { view ->
+            if (view.tileProvider.tileSource !== baseSource) view.setTileSource(baseSource)
+            val primary = resident.map { it.second }
+            if (!view.overlays.containsAll(primary) || primary.any { overlay ->
+                    view.overlays.indexOf(overlay) >= primary.size
+                }
+            ) {
+                view.overlays.clear()
+                view.overlays.addAll(primary)
+            }
+            resident.forEach { (index, overlay) ->
+                overlay.isEnabled = true
+                overlay.setColorFilter(if (index == frameIndex) visibleFilter else hiddenFilter)
+            }
+            center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
+            markers.items.apply {
+                clear()
+                myPosition?.let { add(punto(it, BrandBlue.toArgb())) }
+                watched?.let { add(punto(it, BrandPink.toArgb())) }
+            }
+            rayos?.let { if (!view.overlays.contains(it)) view.overlays.add(it) }
+            if (!view.overlays.contains(markers)) view.overlays.add(markers)
+            view.invalidate()
+        },
+    )
+}
+
+@Composable
+private fun WeatherLayerPicker(
+    selected: String,
+    satelliteVariant: String,
+    cloudsConfigured: Boolean,
+    onLayer: (String) -> Unit,
+    onVariant: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)),
+        shape = RoundedCornerShape(18.dp),
+    ) {
+        Column(Modifier.padding(5.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                listOf(
+                    "radar" to "Radar",
+                    "satellite" to "Satélite",
+                    "clouds" to if (cloudsConfigured) "Nubes" else "Nubes · clave",
+                ).forEach { (id, label) ->
+                    val active = id == selected
+                    Text(
+                        label,
+                        color = if (active) Color.White else MaterialTheme.colorScheme.onSurface,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (active) BrandPink else Color.Transparent)
+                            .clickable(enabled = id != "clouds" || cloudsConfigured) { onLayer(id) }
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
+                    )
+                }
+            }
+            if (selected == "satellite") {
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    listOf("geocolour" to "Color", "visible" to "Visible", "infra" to "Infrarrojo")
+                        .forEach { (id, label) ->
+                            val active = id == satelliteVariant
+                            Text(
+                                label,
+                                color = if (active) BrandPink else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                fontSize = 11.sp,
+                                modifier = Modifier.clickable { onVariant(id) }.padding(5.dp),
+                            )
+                        }
+                }
+            }
+        }
+    }
 }
 
 /** Estado del radar sobre el punto vigilado. */
@@ -521,6 +792,7 @@ private fun SummaryCard(place: String, analysis: LocationAnalysis, settings: Set
         overhead != null && overhead.snow -> "Está nevando"
         overhead != null -> "Está lloviendo"
         analysis.nearest != null -> "Precipitación cerca"
+        analysis.arrival != null && analysis.etaMinutes != null -> "Precipitación acercándose"
         else -> "Sin precipitación cerca"
     }
     Card(
@@ -715,7 +987,8 @@ private suspend fun centerOnUser(
 ) {
     onBusy(true)
     try {
-        val punto = deviceLocation(context) ?: return
+        val location = withContext(Dispatchers.IO) { currentDeviceLocation(context) } ?: return
+        val punto = GeoPoint(location.latitude, location.longitude)
         onFound(punto)
         if (map != null) {
             withContext(Dispatchers.Main) {
@@ -727,29 +1000,6 @@ private suspend fun centerOnUser(
         onBusy(false)
     }
 }
-
-/** Última posición conocida del dispositivo, o `null` si no hay ninguna. */
-internal fun deviceLocation(context: android.content.Context): GeoPoint? {
-    val manager = context.getSystemService(android.location.LocationManager::class.java)
-        ?: return null
-    val proveedores = listOf(
-        android.location.LocationManager.GPS_PROVIDER,
-        android.location.LocationManager.NETWORK_PROVIDER,
-        android.location.LocationManager.PASSIVE_PROVIDER,
-    )
-    // Se queda con la lectura más reciente de entre los proveedores activos.
-    val mejor = proveedores
-        .filter { runCatching { manager.isProviderEnabled(it) }.getOrDefault(false) }
-        .mapNotNull {
-            runCatching {
-                @Suppress("MissingPermission")
-                manager.getLastKnownLocation(it)
-            }.getOrNull()
-        }
-        .maxByOrNull { it.time }
-    return mejor?.let { GeoPoint(it.latitude, it.longitude) }
-}
-
 
 /** Punto de color sobre el mapa: dónde estás o qué se está vigilando. */
 private fun punto(at: GeoPoint, color: Int): Overlay = object : Overlay() {
@@ -849,7 +1099,8 @@ private fun RadarStatus(
         frames == 0 -> "Cargando el radar…"
         loaded < frames -> "Cargando fotogramas $loaded/$frames"
         analysis == null -> null
-        analysis.overhead == null && analysis.nearest == null -> "Sin ecos de precipitación cerca"
+        analysis.overhead == null && analysis.nearest == null && analysis.arrival == null ->
+            "Sin ecos de precipitación cerca"
         else -> null
     } ?: return
 

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { checkLocation } from '../alarm/watcher.js';
 import { thresholdFor } from '../alarm/engine.js';
+import { config } from '../config.js';
 import {
   createLocation,
   deleteLocation,
@@ -40,6 +41,11 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
     const body = locationInputSchema.safeParse(request.body);
     if (!body.success) return badRequest(reply, body.error);
     const db = getDb();
+    if (listLocations(db, deviceId).length >= config.security.maxLocationsPerDevice) {
+      return reply.code(429).send({
+        error: `Límite de ${config.security.maxLocationsPerDevice} ubicaciones por dispositivo`,
+      });
+    }
     const location = createLocation(db, deviceId, body.data);
     return reply.code(201).send({ ...location, state: getAlarmState(db, location.id) });
   });
@@ -78,6 +84,11 @@ export async function locationRoutes(app: FastifyInstance): Promise<void> {
     if (!body.success) return badRequest(reply, body.error);
 
     const db = getDb();
+    const current = getLocation(db, params.data.id, deviceId);
+    if (!current) return reply.code(404).send({ error: 'Ubicación no encontrada' });
+    if (!current.followDevice) {
+      return reply.code(409).send({ error: 'La ubicación no sigue al dispositivo' });
+    }
     const updated = updateLocation(db, params.data.id, deviceId, {
       lat: body.data.lat,
       lon: body.data.lon,

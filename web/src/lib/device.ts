@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'plou.deviceId';
+const REGISTRATION_KEY = 'plou.registrationToken';
 
 function randomId(): string {
   const bytes = new Uint8Array(16);
@@ -17,6 +18,28 @@ export function deviceId(): string {
     localStorage.setItem(STORAGE_KEY, id);
   }
   return id;
+}
+
+/**
+ * Secreto opcional de alta para instancias privadas. El administrador comparte
+ * una URL `?invite=...`; se guarda localmente y se retira enseguida de la barra
+ * de direcciones para que no viaje en enlaces posteriores.
+ */
+export function registrationToken(): string {
+  const url = new URL(window.location.href);
+  const invite = url.searchParams.get('invite')?.trim();
+  if (invite) {
+    localStorage.setItem(REGISTRATION_KEY, invite);
+    url.searchParams.delete('invite');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    return invite;
+  }
+  return localStorage.getItem(REGISTRATION_KEY) ?? '';
+}
+
+/** El secreto deja de ser necesario en cuanto el servidor reconoce el dispositivo. */
+export function clearRegistrationToken(): void {
+  localStorage.removeItem(REGISTRATION_KEY);
 }
 
 /** Zona horaria del sistema, usada para las franjas de silencio. */
