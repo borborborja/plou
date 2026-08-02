@@ -48,6 +48,11 @@ export interface LocationAnalysis {
   nearest: EchoHit | null;
   /** Eco más intenso dentro del radio vigilado. */
   strongest: EchoHit | null;
+  /**
+   * Eco actual que la extrapolación prevé sobre el punto en [etaMinutes].
+   * Puede estar fuera del radio vigilado en el fotograma observado.
+   */
+  arrival: EchoHit | null;
   /** Nº de celdas del radio con precipitación por encima del umbral. */
   cellsAboveThreshold: number;
   /** Porcentaje del área vigilada cubierta por precipitación. */
@@ -193,6 +198,7 @@ export async function analyzeLocation(
   let etaMinutes: number | null = null;
   let etaRadiusMinutes: number | null = null;
   let clearingMinutes: number | null = null;
+  let arrival: EchoHit | null = null;
 
   const stepMinutes = 5;
   if (motion && motion.speedKmh > 0.5) {
@@ -210,7 +216,14 @@ export async function analyzeLocation(
         kind: allowedAtPoint >= thresholdDbz ? kindName(atPoint.kind) : 'none',
       });
 
-      if (etaMinutes === null && allowedAtPoint >= thresholdDbz) etaMinutes = t;
+      if (etaMinutes === null && allowedAtPoint >= thresholdDbz) {
+        etaMinutes = t;
+        // `backEast/backNorth` es la posición que ocupa ahora el eco que, al
+        // desplazarse con el vector estimado, alcanzará el punto en `t`.
+        // Se conserva aunque esté fuera del radio: es precisamente el caso que
+        // debe poder activar el modo "acercándose" con antelación.
+        arrival = hitFrom(center, backEast, backNorth, atPoint.dbz, atPoint.kind);
+      }
       if (etaRadiusMinutes === null) {
         const inRadius = maxInDisc(field, backEast, backNorth, radiusKm);
         if (inRadius.dbz >= thresholdDbz && kindAllowed(inRadius.kind, rain, snow)) {
@@ -233,7 +246,10 @@ export async function analyzeLocation(
         kind: allowed >= thresholdDbz ? kindName(probe.kind) : 'none',
       });
     }
-    if (allowed >= thresholdDbz) etaMinutes = 0;
+    if (allowed >= thresholdDbz) {
+      etaMinutes = 0;
+      arrival = hitFrom(center, 0, 0, probe.dbz, probe.kind);
+    }
     if (nearest) etaRadiusMinutes = 0;
   }
 
@@ -252,6 +268,7 @@ export async function analyzeLocation(
     overhead,
     nearest,
     strongest,
+    arrival,
     cellsAboveThreshold: cellsAbove,
     areaCoveragePct: cellsInRadius > 0 ? (cellsAbove / cellsInRadius) * 100 : 0,
     motion,

@@ -46,6 +46,7 @@ function lloviendo() {
     overhead: hit,
     nearest: hit,
     strongest: hit,
+    arrival: hit,
     cellsAboveThreshold: 10,
     areaCoveragePct: 8,
     motion: null,
@@ -63,6 +64,7 @@ function despejado() {
     overhead: null,
     nearest: null,
     strongest: null,
+    arrival: null,
     cellsAboveThreshold: 0,
     areaCoveragePct: 0,
     etaMinutes: null,
@@ -145,6 +147,21 @@ describe('checkLocation: entrega del aviso', () => {
     const state = getAlarmState(db, location.id);
     expect(state.last_fired_at).toBeNull();
     expect(state.last_error).toContain('radar caído');
+  });
+
+  it('no evalúa una ubicación seguida cuya posición ya ha caducado', async () => {
+    const followed = createLocation(db, 'disp', {
+      name: 'Mi posición',
+      lat: center.lat,
+      lon: center.lon,
+      followDevice: true,
+      alarm: defaultAlarmConfig(),
+    });
+    db.prepare('UPDATE locations SET position_updated_at = ? WHERE id = ?').run(0, followed.id);
+
+    expect(await checkLocation(db, { ...followed, positionUpdatedAt: 0 })).toBe('error');
+    expect(getAlarmState(db, followed.id).last_error).toContain('posición');
+    expect(analyzeLocation).not.toHaveBeenCalled();
   });
 });
 

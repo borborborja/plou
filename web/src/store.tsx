@@ -12,6 +12,7 @@ import { api } from './api';
 import { t, type Strings } from './i18n';
 import { systemTimezone } from './lib/device';
 import { hasActiveSubscription, pushStatus, registerServiceWorker, type PushStatus } from './lib/push';
+import { shouldRefresh } from './lib/runtime';
 import type {
   AlarmEvent,
   Location,
@@ -79,6 +80,12 @@ const FALLBACK_SETTINGS: Settings = {
     clock: '24h',
   },
   map: {
+    activeLayer: 'radar',
+    satelliteVariant: 'geocolour',
+    showLightning: false,
+    satelliteOpacity: 0.9,
+    cloudOpacity: 0.72,
+    lightningOpacity: 0.9,
     colorScheme: 2,
     smooth: true,
     showSnow: true,
@@ -264,6 +271,73 @@ export function StoreProvider({ children }: { children: ReactNode }): JSX.Elemen
     setPoint({ lat: first.lat, lon: first.lon, name: first.name, locationId: first.id });
   }, [locations, point, setPoint]);
 
+  // Mantiene actualizada la única ubicación marcada como "seguir al
+  // dispositivo" mientras la PWA está abierta. Los navegadores no permiten
+  // geolocalización arbitraria desde un service worker cerrado, por lo que se
+  // sincroniza al abrir y cada vez que llega una lectura nueva.
+  const followingId = locations.find((location) => location.followDevice)?.id ?? null;
+  useEffect(() => {
+    if (followingId === null || !('geolocation' in navigator)) return;
+    let cancelled = false;
+    let sending = false;
+    let lastSent: { lat: number; lon: number; at: number } | null = null;
+
+    const syncPosition = (position: GeolocationPosition): void => {
+      if (cancelled || sending) return;
+      const { latitude, longitude, accuracy } = position.coords;
+      const now = Date.now();
+      const movedEnough =
+        !lastSent || Math.hypot(latitude - lastSent.lat, longitude - lastSent.lon) * 111 >= 0.1;
+      if (!movedEnough && lastSent && now - lastSent.at < 5 * 60_000) return;
+
+      sending = true;
+      void api
+        .updatePosition(followingId, latitude, longitude, accuracy)
+        .then((updated) => {
+          if (cancelled) return;
+          lastSent = { lat: latitude, lon: longitude, at: now };
+          setLocations((previous) =>
+            previous.map((location) =>
+              location.id === updated.id ? { ...location, ...updated } : location,
+            ),
+          );
+          if (pointRef.current?.locationId === followingId) {
+            setPoint({
+              lat: latitude,
+              lon: longitude,
+              name: updated.name,
+              locationId: followingId,
+            });
+          }
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          sending = false;
+        });
+    };
+
+    const watchId = navigator.geolocation.watchPosition(
+      syncPosition,
+      () => undefined,
+      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 120_000 },
+    );
+    // Incluso sin movimiento hay que renovar la vigencia de la posición: el
+    // servidor rechaza coordenadas antiguas para no avisar en un lugar previo.
+    const heartbeat = window.setInterval(() => {
+      navigator.geolocation.getCurrentPosition(syncPosition, () => undefined, {
+        enableHighAccuracy: false,
+        timeout: 15_000,
+        maximumAge: 120_000,
+      });
+    }, 5 * 60_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(heartbeat);
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [followingId, setPoint]);
+
   // Datos del punto activo.
   useEffect(() => {
     if (!point) return;
@@ -271,12 +345,12 @@ export function StoreProvider({ children }: { children: ReactNode }): JSX.Elemen
     void refreshForecast();
   }, [point, refreshAnalysis, refreshForecast]);
 
-  // Refresco periódico mientras la app está visible.
+  // En modo normal se intenta refrescar también en segundo plano (el navegador
+  // puede espaciar los temporizadores). El ahorro de energía lo evita.
   useEffect(() => {
     if (!point) return;
     const interval = window.setInterval(() => {
-      if (document.visibilityState !== 'visible') return;
-      if (settingsRef.current.batterySaver && document.hidden) return;
+      if (!shouldRefresh(document.hidden, settingsRef.current.batterySaver)) return;
       void refreshAnalysis();
       void refreshForecast();
     }, settings.refreshSeconds * 1000);

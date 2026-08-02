@@ -27,6 +27,7 @@ export interface LocationRow {
   alarm_json: string;
   created_at: number;
   updated_at: number;
+  position_updated_at: number | null;
 }
 
 export interface AlarmStateRow {
@@ -62,6 +63,8 @@ export interface Location {
   alarm: AlarmConfig;
   createdAt: number;
   updatedAt: number;
+  /** Última sincronización de coordenadas para una ubicación móvil. */
+  positionUpdatedAt: number | null;
 }
 
 const MIGRATIONS: string[] = [
@@ -123,6 +126,9 @@ const MIGRATIONS: string[] = [
   CREATE INDEX idx_events_device ON alarm_events(device_id, fired_at DESC);
   CREATE INDEX idx_events_location ON alarm_events(location_id, fired_at DESC);
   `,
+  `
+  ALTER TABLE locations ADD COLUMN position_updated_at INTEGER;
+  `,
 ];
 
 export type Db = Database.Database;
@@ -134,8 +140,12 @@ function migrate(db: Db): void {
   db.pragma('foreign_keys = ON');
   const current = db.pragma('user_version', { simple: true }) as number;
   for (let v = current; v < MIGRATIONS.length; v++) {
-    db.exec(`BEGIN; ${MIGRATIONS[v]!} COMMIT;`);
-    db.pragma(`user_version = ${v + 1}`);
+    db.transaction(() => {
+      db.exec(MIGRATIONS[v]!);
+      // La versión forma parte de la misma transacción que el DDL: un corte
+      // no puede dejar el esquema aplicado pero marcado como pendiente.
+      db.pragma(`user_version = ${v + 1}`);
+    })();
   }
 }
 
@@ -163,6 +173,14 @@ export function closeDb(): void {
 
 // ---------------------------------------------------------------------------
 // Dispositivos
+
+export function deviceExists(db: Db, id: string): boolean {
+  return db.prepare('SELECT 1 FROM devices WHERE id = ?').get(id) !== undefined;
+}
+
+export function countDevices(db: Db): number {
+  return (db.prepare('SELECT COUNT(*) AS n FROM devices').get() as { n: number }).n;
+}
 
 export function upsertDevice(db: Db, id: string, userAgent?: string): DeviceRow {
   const now = Date.now();
@@ -225,6 +243,7 @@ function toLocation(row: LocationRow): Location {
     alarm,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    positionUpdatedAt: row.position_updated_at,
   };
 }
 
@@ -252,12 +271,16 @@ export function createLocation(
   const now = Date.now();
   // Sólo puede haber una ubicación que siga al dispositivo.
   if (input.followDevice) {
-    db.prepare('UPDATE locations SET follow_device = 0 WHERE device_id = ?').run(deviceId);
+    db.prepare(
+      'UPDATE locations SET follow_device = 0, position_updated_at = NULL WHERE device_id = ?',
+    ).run(deviceId);
   }
   const info = db
     .prepare(
-      `INSERT INTO locations (device_id, name, lat, lon, follow_device, alarm_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO locations (
+         device_id, name, lat, lon, follow_device, alarm_json,
+         created_at, updated_at, position_updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       deviceId,
@@ -268,6 +291,7 @@ export function createLocation(
       JSON.stringify(alarmConfigSchema.parse(input.alarm)),
       now,
       now,
+      input.followDevice ? now : null,
     );
   const id = Number(info.lastInsertRowid);
   db.prepare('INSERT OR IGNORE INTO alarm_state (location_id) VALUES (?)').run(id);
@@ -283,7 +307,11 @@ export function updateLocation(
   const current = getLocation(db, id, deviceId);
   if (!current) return null;
   if (patch.followDevice) {
-    db.prepare('UPDATE locations SET follow_device = 0 WHERE device_id = ? AND id != ?').run(deviceId, id);
+    db.prepare(
+      `UPDATE locations
+          SET follow_device = 0, position_updated_at = NULL
+        WHERE device_id = ? AND id != ?`,
+    ).run(deviceId, id);
   }
   const merged = {
     name: patch.name ?? current.name,
@@ -292,8 +320,17 @@ export function updateLocation(
     followDevice: patch.followDevice ?? current.followDevice,
     alarm: patch.alarm ? alarmConfigSchema.parse({ ...current.alarm, ...patch.alarm }) : current.alarm,
   };
+  const now = Date.now();
+  const coordinatesChanged = patch.lat !== undefined || patch.lon !== undefined;
+  const positionUpdatedAt = !merged.followDevice
+    ? null
+    : coordinatesChanged
+      ? now
+      : current.positionUpdatedAt;
   db.prepare(
-    `UPDATE locations SET name = ?, lat = ?, lon = ?, follow_device = ?, alarm_json = ?, updated_at = ?
+    `UPDATE locations
+        SET name = ?, lat = ?, lon = ?, follow_device = ?, alarm_json = ?,
+            updated_at = ?, position_updated_at = ?
      WHERE id = ? AND device_id = ?`,
   ).run(
     merged.name,
@@ -301,7 +338,8 @@ export function updateLocation(
     merged.lon,
     merged.followDevice ? 1 : 0,
     JSON.stringify(merged.alarm),
-    Date.now(),
+    now,
+    positionUpdatedAt,
     id,
     deviceId,
   );

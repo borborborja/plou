@@ -27,12 +27,31 @@ garantizar ninguna de las dos cosas.
 No hay cuenta de usuario, ni servidor propio, ni telemetría. Las ubicaciones y
 las preferencias viven en el almacenamiento local del móvil.
 
+## Capas del mapa
+
+- **Radar** RainViewer observado y, cuando existe, nowcast.
+- **Satélite** EUMETSAT: Geo Colour, visible e infrarrojo, 2 h de historia en
+  pasos de 10 min. No requiere clave.
+- **Nubes** OpenWeather Weather Maps 2.0 (`CL`), previsión cada 3 h hasta 10
+  días. Requiere que el usuario introduzca su clave en Ajustes.
+- **Rayos** AEMET OpenData, superposición opcional del gráfico agregado de las
+  últimas 12 h. Es orientativa, no genera alarmas.
+
+La animación de satélite/nubes conserva una ventana de cuatro fotogramas
+(anterior, actual y dos siguientes), por lo que no crea 81 capas a la vez. Las
+claves OpenWeather y AEMET se cifran con AES-GCM usando una clave no exportable
+de Android Keystore; no forman parte de DataStore ni se envían a Plou.
+
+> La extensión geográfica del gráfico AEMET está aproximada a la Península y
+> Canarias (`-19,27,5,45`). Hace falta validar y, si procede, ajustar su recorte
+> con una clave/respuesta real antes de interpretar posiciones con precisión.
+
 ## Compilar
 
 ```bash
 cd android
 ./gradlew assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # 44 pruebas del motor de radar y de alarmas
+./gradlew testDebugUnitTest    # pruebas del motor de radar y de alarmas
 ```
 
 Requisitos: JDK 17 y el SDK de Android con la plataforma 35. La ruta del SDK va
@@ -45,7 +64,8 @@ app/src/main/java/cat/plou/
   radar/     ColorTable, Frames, Tiles, Field, Motion, Analysis, Geo
   alarm/     Engine (decisión de aviso), Window (franjas), WatchService, AlarmActivity
   forecast/  Open-Meteo: previsión y búsqueda de localidades
-  data/      almacenamiento local (DataStore)
+  map/       EUMETSAT, OpenWeather Weather Maps y AEMET rayos
+  data/      almacenamiento local (DataStore) y claves cifradas (Keystore)
   ui/        pantallas en Compose y sistema de diseño
 app/src/test/  pruebas unitarias del motor
 ```
@@ -57,6 +77,9 @@ app/src/test/  pruebas unitarias del motor
 | `INTERNET` | descargar teselas de radar y previsión |
 | `POST_NOTIFICATIONS` | mostrar los avisos |
 | `FOREGROUND_SERVICE` + `..._SPECIAL_USE` | vigilar el radar de forma continua |
+| `FOREGROUND_SERVICE_LOCATION` | actualizar la alarma de «mi posición» desde el servicio |
+| `ACCESS_COARSE/FINE_LOCATION` | obtener una posición reciente al comprobar |
+| `ACCESS_BACKGROUND_LOCATION` | mantener «mi posición» tras cerrar o reiniciar |
 | `VIBRATE`, `WAKE_LOCK` | que la alarma se note y despierte la pantalla |
 
 ## Publicar una versión
@@ -98,7 +121,7 @@ en vez de fallar.
 
 ## Estado
 
-Compila y las 44 pruebas del motor pasan. **No se ha ejecutado todavía en un
+Compila y las pruebas unitarias pasan. **No se ha ejecutado todavía en un
 dispositivo ni en un emulador**: no hay ninguno disponible en el entorno donde
 se ha desarrollado, así que el comportamiento en pantalla, los permisos en
 tiempo de ejecución y el aviso sobre la pantalla de bloqueo están sin verificar

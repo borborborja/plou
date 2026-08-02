@@ -12,7 +12,7 @@ Plou avisa de lluvia leyendo directamente los mosaicos de radar. Hay dos cliente
 npm install                                  # workspaces: server + web
 npm run dev                                  # API en :8787 y Vite en :5173
 npm run build && npm start                   # producción en :8787
-npm test                                     # 105 pruebas del servidor (vitest)
+npm test                                     # pruebas del servidor y la PWA (vitest)
 npm run keys                                 # claves VAPID en server/data/
 
 npm run test --workspace=server -- motion    # un solo fichero de pruebas
@@ -27,7 +27,7 @@ npx tsx server/scripts/verify-motion.mts     # verifica el vector de movimiento
 ```bash
 cd android
 ./gradlew assembleDebug                      # APK en app/build/outputs/apk/debug/
-./gradlew testDebugUnitTest                  # 53 pruebas del motor portado
+./gradlew testDebugUnitTest                  # pruebas del motor portado
 ./gradlew testDebugUnitTest --tests '*MotionTest*'
 ```
 
@@ -87,8 +87,9 @@ Precedencia: desactivada → fuera de la franja de vigilancia → detección
 («llueve encima» gana sobre el modo elegido) → aplazamiento → situación ya
 activa → horas de silencio → intervalo mínimo → avisar.
 
-Las horas de silencio **absorben el episodio marcándolo como activo**, para que
-al terminar la franja no salte un aviso tardío de algo que empezó de madrugada.
+Las horas de silencio marcan el episodio como activo pero no como anunciado. Si
+la precipitación continúa al terminar la franja, se emite entonces el primer
+aviso; si ya terminó, no se genera ningún aviso tardío.
 Las franjas que cruzan medianoche atribuyen la madrugada al día de **inicio**.
 
 ## Servidor

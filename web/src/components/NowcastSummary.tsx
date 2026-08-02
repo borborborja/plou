@@ -70,16 +70,18 @@ export function NowcastSummary(): JSX.Element {
     return <div className="summary summary--loading">{strings.unknown}</div>;
   }
 
-  const { overhead, nearest, motion } = analysis;
+  const { overhead, nearest, arrival, motion } = analysis;
   const state = overhead
     ? overhead.kind === 'snow'
       ? strings.snowingNow
       : strings.rainingNow
     : nearest
       ? strings.rainNearby
-      : strings.noRainNearby;
+      : arrival && analysis.etaMinutes !== null
+        ? strings.rainApproaching
+        : strings.noRainNearby;
 
-  const tone = overhead ? 'is-raining' : nearest ? 'is-near' : 'is-dry';
+  const tone = overhead ? 'is-raining' : nearest || arrival ? 'is-near' : 'is-dry';
 
   return (
     <div className={`summary ${tone}`}>

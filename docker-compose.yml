@@ -8,12 +8,37 @@ services:
     environment:
       # Contacto que se envía al servicio de push del navegador.
       PLOU_VAPID_SUBJECT: ${PLOU_VAPID_SUBJECT:-mailto:admin@localhost}
+      PLOU_VAPID_PUBLIC_KEY: ${PLOU_VAPID_PUBLIC_KEY:-}
+      PLOU_VAPID_PRIVATE_KEY: ${PLOU_VAPID_PRIVATE_KEY:-}
+      PLOU_ALARM_ENABLED: ${PLOU_ALARM_ENABLED:-true}
       PLOU_ALARM_TICK: ${PLOU_ALARM_TICK:-120}
+      PLOU_ALARM_MAX_FRAME_AGE: ${PLOU_ALARM_MAX_FRAME_AGE:-30}
+      PLOU_DEVICE_POSITION_MAX_AGE: ${PLOU_DEVICE_POSITION_MAX_AGE:-30}
+      PLOU_REGISTRATION_TOKEN: ${PLOU_REGISTRATION_TOKEN:-}
+      PLOU_CORS_ORIGINS: ${PLOU_CORS_ORIGINS:-}
+      PLOU_TRUST_PROXY: ${PLOU_TRUST_PROXY:-false}
+      PLOU_RATE_LIMIT_PER_MINUTE: ${PLOU_RATE_LIMIT_PER_MINUTE:-300}
+      PLOU_MAX_DEVICES: ${PLOU_MAX_DEVICES:-100}
+      PLOU_MAX_LOCATIONS_PER_DEVICE: ${PLOU_MAX_LOCATIONS_PER_DEVICE:-20}
+      PLOU_RADAR_TILE_CACHE_MB: ${PLOU_RADAR_TILE_CACHE_MB:-128}
+      PLOU_RADAR_ZOOM: ${PLOU_RADAR_ZOOM:-7}
+      PLOU_RADAR_TILE_SIZE: ${PLOU_RADAR_TILE_SIZE:-512}
+      PLOU_RADAR_TILE_CACHE: ${PLOU_RADAR_TILE_CACHE:-400}
+      PLOU_RADAR_INDEX: ${PLOU_RADAR_INDEX:-https://api.rainviewer.com/public/weather-maps.json}
+      PLOU_RADAR_INDEX_TTL: ${PLOU_RADAR_INDEX_TTL:-120}
+      PLOU_RADAR_TILE_TIMEOUT: ${PLOU_RADAR_TILE_TIMEOUT:-12000}
+      PLOU_FORECAST_TTL: ${PLOU_FORECAST_TTL:-600}
+      PLOU_OPENMETEO_URL: ${PLOU_OPENMETEO_URL:-https://api.open-meteo.com/v1/forecast}
+      PLOU_GEOCODING_URL: ${PLOU_GEOCODING_URL:-https://geocoding-api.open-meteo.com/v1/search}
       # Credenciales de Foreca (opcionales; sin ellas se usa Open-Meteo).
       PLOU_FORECA_MODE: ${PLOU_FORECA_MODE:-direct}
       PLOU_FORECA_USER: ${PLOU_FORECA_USER:-}
       PLOU_FORECA_PASSWORD: ${PLOU_FORECA_PASSWORD:-}
+      PLOU_FORECA_BASE_URL: ${PLOU_FORECA_BASE_URL:-https://pfa.foreca.com}
+      PLOU_FORECA_AUTH_URL: ${PLOU_FORECA_AUTH_URL:-https://pfa.foreca.com/authorize/token}
       PLOU_FORECA_RAPIDAPI_KEY: ${PLOU_FORECA_RAPIDAPI_KEY:-}
+      PLOU_FORECA_RAPIDAPI_HOST: ${PLOU_FORECA_RAPIDAPI_HOST:-foreca-weather.p.rapidapi.com}
+      PLOU_USER_AGENT: "${PLOU_USER_AGENT:-Plou/1.0 (rain alarm; +https://localhost)}"
     volumes:
       # Base de datos y claves push. Las claves se generan solas al arrancar
       # si se ejecuta `docker compose exec plou node scripts/generate-vapid.mjs`.

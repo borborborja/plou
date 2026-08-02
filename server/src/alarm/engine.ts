@@ -67,7 +67,10 @@ export function detectTrigger(config: AlarmConfig, analysis: LocationAnalysis): 
   const motion = analysis.motion;
   if (!motion || motion.speedKmh < config.minSpeedKmh) return null;
   if (analysis.etaMinutes === null || analysis.etaMinutes > config.leadMinutes) return null;
-  const hit = analysis.nearest ?? analysis.strongest;
+  // El eco que va a llegar puede estar todavía fuera del radio vigilado. El
+  // análisis lo conserva expresamente para que la antelación configurada no
+  // quede anulada hasta que la lluvia entre en el círculo.
+  const hit = analysis.arrival ?? analysis.nearest ?? analysis.strongest;
   if (!hit) return null;
   return { kind: 'approaching', hit, etaMinutes: analysis.etaMinutes };
 }

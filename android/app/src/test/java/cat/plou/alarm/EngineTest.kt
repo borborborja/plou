@@ -35,6 +35,7 @@ class EngineTest {
     private fun analysis(
         overhead: EchoHit? = null,
         nearest: EchoHit? = null,
+        arrival: EchoHit? = null,
         motion: MotionVector? = null,
         eta: Int? = null,
     ) = LocationAnalysis(
@@ -47,6 +48,7 @@ class EngineTest {
         overhead = overhead,
         nearest = nearest,
         strongest = nearest ?: overhead,
+        arrival = arrival,
         cellsAboveThreshold = if (nearest != null || overhead != null) 5 else 0,
         areaCoveragePct = 4.0,
         motion = motion,
@@ -118,6 +120,21 @@ class EngineTest {
         assertEquals(AlarmAction.FIRE, out.action)
         assertEquals(AlarmKind.APPROACHING, out.notification?.kind)
         assertEquals(12, out.notification?.etaMinutes)
+    }
+
+    @Test
+    fun `avisa antes de que el eco entre en el radio`() {
+        val rapido = MotionVector(60.0, 0.0, 60.0, 90.0, 0.8, 100)
+        val fuera = hit(42.0)
+        val config = AlarmConfig(mode = AlarmMode.APPROACHING, leadMinutes = 30, minSpeedKmh = 5.0)
+
+        val out = evaluateAlarm(
+            input(config, analysis(nearest = null, arrival = fuera, motion = rapido, eta = 20)),
+        )
+
+        assertEquals(AlarmAction.FIRE, out.action)
+        assertEquals(AlarmKind.APPROACHING, out.notification?.kind)
+        assertEquals(42.0, out.notification?.distanceKm)
     }
 
     @Test

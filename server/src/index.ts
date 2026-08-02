@@ -1,4 +1,5 @@
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { existsSync } from 'node:fs';
@@ -9,6 +10,7 @@ import { pushAvailable } from './push.js';
 import { deviceRoutes } from './routes/device.js';
 import { forecastRoutes } from './routes/forecast.js';
 import { locationRoutes } from './routes/locations.js';
+import { mapRoutes } from './routes/map.js';
 import { metaRoutes } from './routes/meta.js';
 import { radarRoutes } from './routes/radar.js';
 
@@ -21,16 +23,27 @@ async function main(): Promise<void> {
           ? undefined
           : { target: 'pino-pretty', options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' } },
     },
-    trustProxy: true,
+    trustProxy: config.security.trustProxy,
   });
 
-  await app.register(cors, { origin: true, exposedHeaders: ['x-device-id'] });
+  await app.register(cors, {
+    // La PWA usa el mismo origen. Las integraciones externas deben declararse
+    // expresamente, en vez de habilitar cualquier web de Internet.
+    origin: config.security.corsOrigins.length > 0 ? config.security.corsOrigins : false,
+    exposedHeaders: ['x-device-id'],
+  });
+  await app.register(rateLimit, {
+    global: true,
+    max: config.security.rateLimitPerMinute,
+    timeWindow: '1 minute',
+  });
 
   const db = getDb();
 
   await app.register(metaRoutes);
   await app.register(deviceRoutes);
   await app.register(radarRoutes);
+  await app.register(mapRoutes);
   await app.register(forecastRoutes);
   await app.register(locationRoutes);
 

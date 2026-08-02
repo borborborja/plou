@@ -23,6 +23,21 @@ function envBool(name: string, fallback: boolean): boolean {
   return raw === '1' || raw.toLowerCase() === 'true' || raw.toLowerCase() === 'yes';
 }
 
+function envList(name: string): string[] {
+  return env(name)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function envNumbers(name: string, fallback: number[]): number[] {
+  const parsed = env(name)
+    .split(',')
+    .map((value) => Number(value.trim()))
+    .filter(Number.isFinite);
+  return parsed.length === fallback.length ? parsed : fallback;
+}
+
 /**
  * Las claves VAPID se pueden pasar por entorno o dejarse en un fichero local
  * generado con `npm run keys`. Nunca se registran en el log.
@@ -55,6 +70,20 @@ export const config = {
   serveWeb: envBool('PLOU_SERVE_WEB', true),
   webDist: resolve(env('PLOU_WEB_DIST', '../web/dist')),
 
+  security: {
+    /** Orígenes externos autorizados. Vacío mantiene la API en mismo origen. */
+    corsOrigins: envList('PLOU_CORS_ORIGINS'),
+    /** Sólo activar tras un proxy propio que sanee X-Forwarded-For. */
+    trustProxy: envBool('PLOU_TRUST_PROXY', false),
+    /** Peticiones máximas por IP y minuto. */
+    rateLimitPerMinute: Math.max(30, envInt('PLOU_RATE_LIMIT_PER_MINUTE', 300)),
+    /** Límites defensivos para una instalación personal expuesta. */
+    maxDevices: Math.max(1, envInt('PLOU_MAX_DEVICES', 100)),
+    maxLocationsPerDevice: Math.max(1, envInt('PLOU_MAX_LOCATIONS_PER_DEVICE', 20)),
+    /** Secreto opcional exigido sólo al registrar un navegador nuevo. */
+    registrationToken: env('PLOU_REGISTRATION_TOKEN'),
+  },
+
   radar: {
     /** Índice de fotogramas de radar (pasado + nowcast si la licencia lo incluye). */
     indexUrl: env('PLOU_RADAR_INDEX', 'https://api.rainviewer.com/public/weather-maps.json'),
@@ -66,17 +95,38 @@ export const config = {
     tileSize: envInt('PLOU_RADAR_TILE_SIZE', 512) === 256 ? 256 : 512,
     /** Nº máximo de teselas decodificadas en memoria. */
     tileCacheSize: envInt('PLOU_RADAR_TILE_CACHE', 400),
+    /** Tope aproximado de memoria para teselas decodificadas. */
+    tileCacheMaxBytes: Math.max(16, envInt('PLOU_RADAR_TILE_CACHE_MB', 128)) * 1024 * 1024,
     /** Timeout de descarga de tesela (ms). */
     tileTimeoutMs: envInt('PLOU_RADAR_TILE_TIMEOUT', 12_000),
+  },
+
+  mapLayers: {
+    /** EUMETView es público; el servidor lo normaliza a teselas XYZ y lo cachea. */
+    eumetWmsUrl: env('PLOU_EUMET_WMS_URL', 'https://view.eumetsat.int/geoserver/wms'),
+    satelliteHistoryMinutes: Math.max(30, envInt('PLOU_SATELLITE_HISTORY_MINUTES', 120)),
+    /** Weather Maps 2.0: la clave nunca se entrega al navegador. */
+    openWeatherKey: env('PLOU_OPENWEATHER_API_KEY'),
+    openWeatherTilesUrl: env(
+      'PLOU_OPENWEATHER_TILES_URL',
+      'https://maps.openweathermap.org/maps/2.0/weather',
+    ),
+    /** AEMET OpenData devuelve un gráfico de rayos acumulados durante 12 h. */
+    aemetKey: env('PLOU_AEMET_API_KEY'),
+    aemetUrl: env(
+      'PLOU_AEMET_LIGHTNING_URL',
+      'https://opendata.aemet.es/opendata/api/red/rayos/mapa',
+    ),
+    /** Extensión geográfica e interior útil del gráfico, ajustables si AEMET cambia el producto. */
+    aemetBounds: envNumbers('PLOU_AEMET_LIGHTNING_BOUNDS', [-19, 27, 5, 45]),
+    aemetCrop: envNumbers('PLOU_AEMET_LIGHTNING_CROP', [0, 0, 1, 1]),
+    tileCacheSize: Math.max(32, envInt('PLOU_MAP_TILE_CACHE', 512)),
+    tileTimeoutMs: Math.max(2_000, envInt('PLOU_MAP_TILE_TIMEOUT', 15_000)),
   },
 
   forecast: {
     openMeteoUrl: env('PLOU_OPENMETEO_URL', 'https://api.open-meteo.com/v1/forecast'),
     geocodingUrl: env('PLOU_GEOCODING_URL', 'https://geocoding-api.open-meteo.com/v1/search'),
-    airQualityUrl: env(
-      'PLOU_AIRQUALITY_URL',
-      'https://air-quality-api.open-meteo.com/v1/air-quality',
-    ),
     /**
      * Foreca es un servicio comercial: sólo se activa si se aportan credenciales.
      * Modo `direct` usa developer.foreca.com (usuario/contraseña -> token);
@@ -100,6 +150,8 @@ export const config = {
     tickSeconds: envInt('PLOU_ALARM_TICK', 120),
     /** Se ignoran fotogramas de radar más antiguos que esto (minutos). */
     maxFrameAgeMinutes: envInt('PLOU_ALARM_MAX_FRAME_AGE', 30),
+    /** Antigüedad máxima de la posición que sigue a una PWA cerrada. */
+    maxDevicePositionAgeMinutes: Math.max(5, envInt('PLOU_DEVICE_POSITION_MAX_AGE', 30)),
     /** Activar el bucle de vigilancia en segundo plano. */
     enabled: envBool('PLOU_ALARM_ENABLED', true),
   },

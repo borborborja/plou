@@ -56,6 +56,8 @@ interface CacheEntry {
   promise: Promise<DecodedTile>;
   /** Momento en que se resolvió, para poder purgar por antigüedad. */
   at: number;
+  /** Memoria de los arrays decodificados una vez resuelta la promesa. */
+  bytes: number;
 }
 
 const cache = new Map<string, CacheEntry>();
@@ -65,8 +67,17 @@ function touch(key: string, entry: CacheEntry): void {
   cache.set(key, entry);
 }
 
+function cacheBytes(): number {
+  let total = 0;
+  for (const entry of cache.values()) total += entry.bytes;
+  return total;
+}
+
 function evict(): void {
-  while (cache.size > config.radar.tileCacheSize) {
+  while (
+    cache.size > config.radar.tileCacheSize ||
+    cacheBytes() > config.radar.tileCacheMaxBytes
+  ) {
     const oldest = cache.keys().next();
     if (oldest.done) break;
     cache.delete(oldest.value);
@@ -106,12 +117,21 @@ export function getTile(
     touch(key, hit);
     return hit.promise;
   }
-  const entry: CacheEntry = {
-    at: Date.now(),
-    promise: fetchAndDecode(url, scheme, size).catch((err) => {
+  let entry: CacheEntry;
+  const promise = fetchAndDecode(url, scheme, size)
+    .then((tile) => {
+      entry.bytes = tile.dbz.byteLength + tile.kind.byteLength;
+      evict();
+      return tile;
+    })
+    .catch((err) => {
       cache.delete(key); // los errores no se cachean
       throw err;
-    }),
+    });
+  entry = {
+    at: Date.now(),
+    bytes: 0,
+    promise,
   };
   cache.set(key, entry);
   evict();
@@ -158,8 +178,13 @@ export function getAlphaTile(url: string, size = config.radar.tileSize): Promise
   return promise;
 }
 
-export function tileCacheStats(): { size: number; limit: number } {
-  return { size: cache.size, limit: config.radar.tileCacheSize };
+export function tileCacheStats(): { size: number; limit: number; bytes: number; maxBytes: number } {
+  return {
+    size: cache.size,
+    limit: config.radar.tileCacheSize,
+    bytes: cacheBytes(),
+    maxBytes: config.radar.tileCacheMaxBytes,
+  };
 }
 
 /** Elimina de la caché las teselas anteriores a `maxAgeMs`. */

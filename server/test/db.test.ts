@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createLocation,
+  countDevices,
   deleteLocation,
+  deviceExists,
   getAlarmState,
   getSettings,
   listEvents,
@@ -54,6 +56,16 @@ describe('dispositivos y preferencias', () => {
     upsertDevice(db, DEVICE);
     const count = db.prepare('SELECT COUNT(*) AS n FROM devices').get() as { n: number };
     expect(count.n).toBe(1);
+  });
+
+  it('cuenta dispositivos y distingue los ya registrados', () => {
+    expect(countDevices(db)).toBe(1);
+    expect(deviceExists(db, DEVICE)).toBe(true);
+    expect(deviceExists(db, 'desconocido')).toBe(false);
+  });
+
+  it('marca atómicamente la versión del esquema', () => {
+    expect(db.pragma('user_version', { simple: true })).toBe(2);
   });
 });
 
