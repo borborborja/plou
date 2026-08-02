@@ -70,6 +70,9 @@ export async function mapRoutes(app: FastifyInstance): Promise<void> {
     const parsed = tileParams.safeParse(request.params);
     if (!parsed.success) return badRequest(reply, parsed.error);
     const { layer, variant, frame, z, x, y } = parsed.data;
+    if (layer === 'clouds' && z > 10) {
+      return reply.code(404).send({ error: 'OpenWeather no sirve este nivel de zoom' });
+    }
     const limit = 2 ** z;
     if (x >= limit || y >= limit) return reply.code(404).send({ error: 'Tesela fuera del mapa' });
     try {

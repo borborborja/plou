@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { AlarmOverlay } from './components/AlarmOverlay';
 import { AlarmsPanel } from './components/AlarmsPanel';
@@ -48,6 +48,7 @@ export function App(): JSX.Element {
   const { ready, error, strings, locations, point, setPoint, locateMe, settings, updateSettings } = useStore();
   const [tab, setTab] = useState<Tab>(initialTab);
   const [picking, setPicking] = useState(false);
+  const initialLocationRequested = useRef(false);
   // A partir de este ancho caben la barra lateral y el panel principal a la vez.
   const wide = useMediaQuery('(min-width: 1024px)');
 
@@ -58,11 +59,14 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('pointerdown', unlock);
   }, []);
 
-  // Sin punto elegido ni ubicaciones guardadas, se propone la posición actual.
+  // Al abrir se intenta usar siempre la posición actual. Si el permiso está
+  // denegado o el sensor falla, `locateMe` conserva el último punto como fallback.
   useEffect(() => {
     const hasLinkedLocation = new URLSearchParams(window.location.search).has('location');
-    if (ready && !point && !hasLinkedLocation) void locateMe();
-  }, [ready, point, locateMe]);
+    if (!ready || hasLinkedLocation || initialLocationRequested.current) return;
+    initialLocationRequested.current = true;
+    void locateMe();
+  }, [ready, locateMe]);
 
   // Una notificación abierta con la app cerrada incluye la ubicación que la
   // originó. Se selecciona cuando ya se han cargado las ubicaciones y se limpia
