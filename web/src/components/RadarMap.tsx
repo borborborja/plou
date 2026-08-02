@@ -140,6 +140,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   const lightningRef = useRef<L.TileLayer | null>(null);
   const layersRef = useRef<(L.TileLayer | undefined)[]>([]);
   const readyFramesRef = useRef(new Set<number>());
+  const failedFramesRef = useRef(new Set<number>());
   const overlaysRef = useRef<L.LayerGroup | null>(null);
   const onPickRef = useRef(onPick);
   onPickRef.current = onPick;
@@ -159,6 +160,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(settings.map.autoPlay);
   const [loadedCount, setLoadedCount] = useState(0);
+  const [failedTileCount, setFailedTileCount] = useState(0);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<GeocodeResult[]>([]);
@@ -210,7 +212,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current, {
       center: [point?.lat ?? 41.39, point?.lon ?? 2.17],
-      zoom: 8,
+      zoom: 10,
       zoomControl: false,
       attributionControl: true,
       touchZoom: true,
@@ -424,11 +426,14 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     for (const layer of layersRef.current) layer?.remove();
     layersRef.current = new Array(allFrames.length);
     readyFramesRef.current.clear();
+    failedFramesRef.current.clear();
     setLoadedCount(0);
+    setFailedTileCount(0);
     return () => {
       for (const layer of layersRef.current) layer?.remove();
       layersRef.current = [];
       readyFramesRef.current.clear();
+      failedFramesRef.current.clear();
     };
   }, [allFrames]);
 
@@ -439,16 +444,26 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
     if (!map || allFrames.length === 0) return;
     indexRef.current = Math.min(index, allFrames.length - 1);
     const count = allFrames.length;
-    const keep = new Set([
-      (indexRef.current - 1 + count) % count,
+    // Prioridad de red: actual → siguiente → anterior → siguiente+1. Sólo se
+    // crea una capa nueva por cada capa ya lista, de modo que la precarga no
+    // compite con las teselas que el usuario está mirando.
+    const keepOrder = [
       indexRef.current,
       (indexRef.current + 1) % count,
+      (indexRef.current - 1 + count) % count,
       (indexRef.current + 2) % count,
-    ]);
+    ].filter((value, position, values) => values.indexOf(value) === position);
+    const keep = new Set(keepOrder);
+    const createOrder = keepOrder.slice(0, Math.min(keepOrder.length, loadedCount + 1));
     const tileSize = settings.map.activeLayer === 'radar' ? (frames?.tileSize ?? 512) : 256;
-    const maxNativeZoom = settings.map.activeLayer === 'radar' ? (frames?.maxNativeZoom ?? 7) : 12;
+    const maxNativeZoom =
+      settings.map.activeLayer === 'radar'
+        ? (frames?.maxNativeZoom ?? 7)
+        : settings.map.activeLayer === 'clouds'
+          ? 10
+          : 12;
 
-    for (const i of keep) {
+    for (const i of createOrder) {
       let layer = layersRef.current[i];
       if (!layer) {
         layer = L.tileLayer(allFrames[i]!.template, {
@@ -457,8 +472,32 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
           className: `animated-weather-tiles ${settings.map.activeLayer}-tiles`,
           attribution: allFrames[i]!.kind === 'forecast' ? '© OpenWeather' : undefined,
         });
-        layer.once('load', () => {
+        // Leaflet emite `load` aunque algunas teselas hayan fallado. Para las
+        // nubes (cobertura global) no consideramos listo el frame hasta que una
+        // pasada completa termine sin errores; se reintenta dos veces.
+        let attemptErrors = 0;
+        let retries = 0;
+        layer.on('tileerror', () => {
+          if (settings.map.activeLayer === 'clouds') attemptErrors++;
+        });
+        layer.on('load', () => {
+          if (settings.map.activeLayer === 'clouds' && attemptErrors > 0) {
+            attemptErrors = 0;
+            failedFramesRef.current.add(i);
+            readyFramesRef.current.delete(i);
+            setFailedTileCount(failedFramesRef.current.size);
+            setLoadedCount(readyFramesRef.current.size);
+            if (retries < 2) {
+              retries++;
+              window.setTimeout(() => {
+                if (map.hasLayer(layer!)) layer!.redraw();
+              }, retries * 1200);
+            }
+            return;
+          }
+          failedFramesRef.current.delete(i);
           readyFramesRef.current.add(i);
+          setFailedTileCount(failedFramesRef.current.size);
           setLoadedCount(readyFramesRef.current.size);
         });
         layer.addTo(map);
@@ -474,6 +513,9 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
         layer.remove();
         layersRef.current[i] = undefined;
         readyFramesRef.current.delete(i);
+        failedFramesRef.current.delete(i);
+        setLoadedCount(readyFramesRef.current.size);
+        setFailedTileCount(failedFramesRef.current.size);
         return;
       }
       layer.setOpacity(i === indexRef.current ? activeOpacity : 0);
@@ -623,7 +665,7 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !point) return;
-    map.setView([point.lat, point.lon], Math.max(map.getZoom(), 8), { animate: true });
+    map.setView([point.lat, point.lon], Math.max(map.getZoom(), 10), { animate: true });
   }, [point?.lat, point?.lon]);
 
   // --- Acciones sobre el mapa ---------------------------------------------
@@ -787,6 +829,9 @@ export function RadarMap({ onPick, height = '100%' }: Props): JSX.Element {
       <div className="radar-map__badges">
         {isNowcast && <span className="badge badge--accent">{strings.extrapolated}</span>}
         {framesError && <span className="badge badge--error">{strings.unknown}</span>}
+        {failedTileCount > 0 && (
+          <span className="badge badge--error">{strings.layerUnavailable}</span>
+        )}
         {settings.map.showLightning && lightningStatus && (
           <span className={`badge ${lightningStatus.active ? 'badge--accent' : ''}`}>
             ⚡{' '}

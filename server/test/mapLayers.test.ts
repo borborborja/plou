@@ -134,5 +134,10 @@ describe('rutas de capas', () => {
       url: `/api/map/tiles/satellite/geocolour/${Date.now()}/2/9/0.png`,
     });
     expect(outside.statusCode).toBe(404);
+    const cloudZoom = await app.inject({
+      method: 'GET',
+      url: `/api/map/tiles/clouds/total/${Date.now()}/11/1024/1024.png`,
+    });
+    expect(cloudZoom.statusCode).toBe(404);
   });
 });

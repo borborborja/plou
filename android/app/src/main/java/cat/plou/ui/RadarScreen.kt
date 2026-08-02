@@ -161,13 +161,26 @@ fun RadarScreen(
     val openWeatherKey = secrets.getOpenWeatherKey()
     val aemetKey = secrets.getAemetKey()
 
-    // Permiso de ubicación: se pide sólo cuando se pulsa el botón.
+    fun selectCurrent(position: GeoPoint) {
+        myPosition = position
+        onSelect(
+            WatchedLocation(
+                id = Long.MIN_VALUE,
+                name = "Mi ubicación",
+                lat = position.latitude,
+                lon = position.longitude,
+            ),
+        )
+    }
+
+    // Permiso de ubicación: se solicita al entrar para que el mapa nazca donde
+    // está el dispositivo; el botón permite repetir la operación más tarde.
     val askLocation = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
             scope.launch {
-                centerOnUser(context, mapRef, { locating = it }, { myPosition = it })
+                centerOnUser(context, mapRef, { locating = it }, ::selectCurrent)
             }
         }
     }
@@ -178,10 +191,14 @@ fun RadarScreen(
             Manifest.permission.ACCESS_COARSE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED
         if (granted) {
-            scope.launch { centerOnUser(context, mapRef, { locating = it }, { myPosition = it }) }
+            scope.launch { centerOnUser(context, mapRef, { locating = it }, ::selectCurrent) }
         } else {
             askLocation.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
+    }
+
+    LaunchedEffect(Unit) {
+        locate()
     }
 
     val client = remember { RadarIndexClient() }
@@ -268,15 +285,20 @@ fun RadarScreen(
     // y los demás se van sumando de uno en uno. Pedir las trece capas a la vez
     // son varios megas de golpe y el mapa tarda en aparecer.
     var loadedFrames by remember(visibleFrameCount) {
-        mutableIntStateOf(if (visibleFrameCount == 0) 0 else minOf(4, visibleFrameCount))
+        mutableIntStateOf(if (visibleFrameCount == 0) 0 else 1)
     }
     LaunchedEffect(visibleFrameCount, settings.activeLayer) {
         if (visibleFrameCount == 0) return@LaunchedEffect
-        loadedFrames = minOf(4, visibleFrameCount)
+        loadedFrames = 1
         // Radar conserva su precarga progresiva; satélite y nubes mantienen una
         // ventana residente de cuatro fotogramas alrededor del actual.
-        if (settings.activeLayer != "radar") return@LaunchedEffect
-        loadedFrames = 1
+        if (settings.activeLayer != "radar") {
+            while (loadedFrames < minOf(4, visibleFrameCount)) {
+                delay(700)
+                loadedFrames++
+            }
+            return@LaunchedEffect
+        }
         while (loadedFrames < visibleFrameCount) {
             delay(700)
             loadedFrames++
@@ -327,6 +349,7 @@ fun RadarScreen(
                 variant = settings.satelliteVariant,
                 frames = weatherFrames,
                 frameIndex = frame,
+                loadedFrames = loadedFrames,
                 openWeatherKey = openWeatherKey,
                 opacity = if (settings.activeLayer == "satellite") settings.satelliteOpacity else settings.cloudOpacity,
                 center = active?.let { GeoPoint(it.lat, it.lon) },
@@ -496,7 +519,7 @@ private fun RadarMap(
         org.osmdroid.config.Configuration.getInstance().userAgentValue = "Plou/1.0"
         MapView(context).apply {
             setMultiTouchControls(true)
-            controller.setZoom(8.0)
+            controller.setZoom(10.0)
             minZoomLevel = 3.0
         }
     }
@@ -636,6 +659,7 @@ private fun WeatherMap(
     variant: String,
     frames: List<WeatherFrame>,
     frameIndex: Int,
+    loadedFrames: Int,
     openWeatherKey: String,
     opacity: Float,
     center: GeoPoint?,
@@ -653,7 +677,7 @@ private fun WeatherMap(
         org.osmdroid.config.Configuration.getInstance().userAgentValue = "Plou/1.0"
         MapView(context).apply {
             setMultiTouchControls(true)
-            controller.setZoom(8.0)
+            controller.setZoom(10.0)
             minZoomLevel = 3.0
         }
     }
@@ -678,7 +702,9 @@ private fun WeatherMap(
     val resident = remember(frames, frameIndex, layer, variant, openWeatherKey) {
         if (frames.isEmpty()) emptyList() else {
             val count = frames.size
-            val indices = listOf(frameIndex - 1, frameIndex, frameIndex + 1, frameIndex + 2)
+            // La capa visible se solicita primero; las vecinas se habilitan de
+            // forma progresiva para que no le roben ancho de banda al arranque.
+            val indices = listOf(frameIndex, frameIndex + 1, frameIndex - 1, frameIndex + 2)
                 .map { (it % count + count) % count }.distinct()
             val ids = indices.map { frames[it].id }.toSet()
             cache.keys.filterNot { it in ids }.forEach { cache.remove(it)?.onDetach(null) }
@@ -713,8 +739,8 @@ private fun WeatherMap(
                 view.overlays.clear()
                 view.overlays.addAll(primary)
             }
-            resident.forEach { (index, overlay) ->
-                overlay.isEnabled = true
+            resident.forEachIndexed { order, (index, overlay) ->
+                overlay.isEnabled = order < loadedFrames
                 overlay.setColorFilter(if (index == frameIndex) visibleFilter else hiddenFilter)
             }
             center?.let { if (view.mapCenter.latitude == 0.0) view.controller.setCenter(it) }
@@ -993,7 +1019,7 @@ private suspend fun centerOnUser(
         if (map != null) {
             withContext(Dispatchers.Main) {
                 map.controller.animateTo(punto)
-                map.controller.setZoom(9.0)
+                map.controller.setZoom(10.0)
             }
         }
     } finally {

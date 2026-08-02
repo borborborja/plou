@@ -50,7 +50,7 @@ class WeatherTileSource(
     private val frame: WeatherFrame,
     private val openWeatherKey: String,
 ) : OnlineTileSourceBase(
-    "$layer-$variant-${frame.id}", 0, 12, 256, ".png", arrayOf(""),
+    "$layer-$variant-${frame.id}", 0, if (layer == "clouds") 10 else 12, 256, ".png", arrayOf(""),
     if (layer == "satellite") "© EUMETSAT" else "© OpenWeather",
     TileSourcePolicy(1, TileSourcePolicy.FLAG_NO_BULK or TileSourcePolicy.FLAG_NO_PREVENTIVE),
 ) {
